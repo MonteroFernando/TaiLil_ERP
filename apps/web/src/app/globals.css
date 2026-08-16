@@ -1,0 +1,94 @@
+@import "tailwindcss";
+
+:root {
+  --fondo: #f3f6f4;
+  --superficie: #ffffff;
+  --texto: #15231b;
+  --texto-suave: #607067;
+  --marca: #12633f;
+  --marca-clara: #dceee4;
+  --borde: #dbe3de;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--fondo);
+  color: var(--texto);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* "Todos" ya incluye ambos roles en el maestro unificado. */
+option[value="ambos"] {
+  display: none;
+}
+
+.erp-aplicacion { display:flex; width:100%; min-height:100vh; }
+.erp-navegacion { position:sticky; top:0; height:100vh; flex:none; display:flex; flex-direction:column; overflow:hidden; border-right:1px solid var(--borde); background:#fff; transition:width .2s ease; }
+.erp-navegacion-abierta { width:250px; }
+.erp-navegacion-cerrada { width:68px; }
+.erp-marca { min-height:72px; display:flex; align-items:center; gap:10px; padding:12px; border-bottom:1px solid var(--borde); }
+.erp-marca > div:nth-child(2) { min-width:0; flex:1; }
+.erp-marca strong,.erp-marca small,.erp-opcion b,.erp-opcion small { display:block; }
+.erp-marca small,.erp-opcion small { margin-top:2px; color:var(--texto-suave); font-size:11px; font-weight:400; }
+.erp-logo,.erp-icono { display:grid; width:36px; height:36px; flex:none; place-items:center; border-radius:10px; background:var(--marca-clara); color:var(--marca); font-size:13px; font-weight:700; }
+.erp-marca button { border:0; background:transparent; color:var(--texto-suave); font-size:24px; cursor:pointer; }
+.erp-navegacion nav { flex:1; overflow-y:auto; padding:8px; }
+.erp-grupo { margin:16px 10px 6px; color:var(--texto-suave); font-size:10px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; }
+.erp-opcion { display:flex; align-items:center; gap:10px; margin:3px 0; padding:8px; border-radius:12px; font-size:13px; }
+.erp-opcion:hover { background:var(--fondo); }
+.erp-opcion-activa { background:var(--marca-clara); color:var(--marca); }
+.erp-opcion span:last-child { min-width:0; }
+.erp-salir { display:flex; align-items:center; gap:10px; margin:8px; padding:8px; border:0; border-top:1px solid var(--borde); background:#fff; color:var(--texto-suave); cursor:pointer; font-size:12px; }
+.erp-contenido { min-width:0; flex:1; width:calc(100vw - 250px); }
+.erp-contenido > main { width:100%; min-height:100vh; }
+.erp-contenido > main > section { width:100%; max-width:none !important; margin-left:0 !important; margin-right:0 !important; }
+
+@media (max-width: 720px) {
+  .erp-navegacion-abierta { width:220px; }
+  .erp-navegacion-cerrada { width:58px; }
+  .erp-contenido { width:auto; }
+}
+.solo-impresion { display: none; }
+.listas-precios-pagina label {
+  font-size: 0.875rem;
+}
+.listas-precios-pagina input,
+.listas-precios-pagina select,
+.listas-precios-pagina textarea {
+  min-height: 2.5rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+}
+.listas-precios-pagina button {
+  font-size: 0.875rem;
+}
+.listas-precios-pagina section.rounded-2xl {
+  padding: 1rem;
+}
+.mt-5.overflow-x-auto.rounded-2xl.border.bg-white.p-4 {
+  max-height: 65vh;
+  overflow: auto;
+}
+@media print {
+  .erp-navegacion, .no-imprimir { display: none !important; }
+  .erp-contenido { margin: 0 !important; width: 100% !important; }
+  .solo-impresion { display: block; color: #000; font-family: Arial, sans-serif; }
+  .solo-impresion h1 { margin-bottom: 12px; font-size: 20px; }
+  .solo-impresion table { width: 100%; margin-top: 20px; border-collapse: collapse; }
+  .solo-impresion th, .solo-impresion td { height: 34px; border: 1px solid #000; padding: 6px; text-align: left; }
+  .solo-impresion .firma { margin-top: 40px; }
+}

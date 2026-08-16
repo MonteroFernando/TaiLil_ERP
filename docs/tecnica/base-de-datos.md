@@ -1,0 +1,31 @@
+# Base de datos
+
+## Normalizacion de textos
+
+Los textos de negocio se almacenan en mayusculas. Los campos de correo electronico son la excepcion: se excluyen de la conversion global y se guardan normalizados en minusculas.
+
+## Conexion local
+
+- Motor: PostgreSQL.
+- Base: `TaiLil_ERP`.
+- Usuario local: `postgres`.
+- Puerto: `5432`.
+- Contraseña: definida exclusivamente en `.env`.
+
+La aplicacion construye la URL mediante `sqlalchemy.URL.create`, evitando duplicar la contraseña y escapando correctamente sus caracteres especiales.
+
+## Idioma y nombres
+
+Las tablas, columnas, claves, restricciones, indices y migraciones del dominio se nombran en español.
+
+- Utilizar `snake_case`.
+- No utilizar tildes, espacios ni `ñ` en identificadores.
+- Claves primarias: `id`.
+- Claves foraneas: `<entidad>_id`.
+- Auditoria: `fecha_creacion` y `fecha_modificacion`.
+
+Ejemplos: `usuarios`, `empresas`, `productos`, `usuario_id`, `inventario_movimientos`.
+
+Las tablas de autorizacion iniciales son `permisos`, `perfiles_acceso`, `perfiles_permisos`, `usuarios_perfiles` y `usuarios_permisos`.
+
+Los nombres exigidos por protocolos o librerias pueden permanecer en ingles. Toda modificacion del esquema se realizara con Alembic y quedara versionada.

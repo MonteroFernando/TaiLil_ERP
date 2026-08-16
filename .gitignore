@@ -216,3 +216,27 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# TaiLil ERP - local secrets and environment overrides
+.env.*
+!.env.example
+
+# Node.js / Next.js frontend
+node_modules/
+.npm-cache/
+.next/
+out/
+*.tsbuildinfo
+
+# Local development data and temporary files
+*.sqlite
+*.sqlite3
+logs/
+tmp/
+temp/
+
+# IDE and operating system files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
