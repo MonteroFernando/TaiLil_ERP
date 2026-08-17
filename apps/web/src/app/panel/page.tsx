@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
+const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api/v1";
 type Tarjeta = { codigo:string; titulo:string; descripcion:string; modulo:string; tipo:"actividad"|"cantidad"|"dinero"|"estado"; disponible:boolean; valor:string|number|null };
 
 export default function Panel() {

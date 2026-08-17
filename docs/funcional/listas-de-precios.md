@@ -9,6 +9,16 @@ Por el momento todos los precios son **brutos**. No se descuenta ni separa IVA a
 
 Las listas comerciales poseen un porcentaje general de incremento sobre COMPRAS que se aplica por defecto a todos los articulos. Se pueden crear nuevas listas con el mismo funcionamiento.
 
+## Actualizacion de precios base
+
+La herramienta **Actualizar precios base** permite modificar COMPRAS de estas formas:
+
+- para un articulo individual, fijar directamente un nuevo precio bruto;
+- para un articulo individual, incrementar o disminuir el precio actual mediante un porcentaje;
+- para un clasificador completo, incrementar o disminuir todos sus precios mediante un porcentaje.
+
+Un porcentaje positivo incrementa y uno negativo disminuye. Por ejemplo, `10` aumenta un 10 % y `-5` disminuye un 5 %. La seleccion por clasificador incluye sus articulos y los vinculados a todos sus subclasificadores. No se permite que una disminucion genere precios negativos.
+
 ## Excepciones por producto
 
 Desde una lista comercial se busca un producto por codigo, descripcion, barra o codigo de proveedor. Para ese producto se puede:

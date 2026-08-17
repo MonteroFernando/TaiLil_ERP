@@ -4,7 +4,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 
 const apiUrl =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
+  process.env.NEXT_PUBLIC_API_URL ?? "/api/v1";
 
 type Unidad = { id: string; codigo: string; nombre: string; simbolo: string };
 type AlicuotaIva = {

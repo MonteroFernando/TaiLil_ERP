@@ -6,7 +6,7 @@ import type { Route } from "next";
 import BuscadorArticulo from "@/components/BuscadorArticulo";
 
 const apiUrl =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
+  process.env.NEXT_PUBLIC_API_URL ?? "/api/v1";
 type Unidad = { id: string; nombre: string; simbolo: string };
 type Iva = { id: string; codigo: string; nombre: string; porcentaje: string };
 type Clasificador = {

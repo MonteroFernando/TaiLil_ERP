@@ -1,9 +1,12 @@
+# ruff: noqa: E501
 from datetime import UTC, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
+from html import escape
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi.responses import HTMLResponse
 from sqlalchemy import Sequence, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,6 +18,8 @@ from app.modules.articulos.api.schemas import (
     AlmacenActualizar,
     AlmacenCrear,
     AlmacenVista,
+    AperturaCajaCrear,
+    AperturaCajaVista,
     ArticuloActualizar,
     ArticuloCrear,
     ArticuloDetalle,
@@ -26,6 +31,8 @@ from app.modules.articulos.api.schemas import (
     ArticuloUnidadActualizar,
     ArticuloUnidadCrear,
     ArticuloUnidadVista,
+    CajaVentaCrear,
+    CajaVentaVista,
     ClasificadorActualizar,
     ClasificadorCrear,
     ClasificadorVista,
@@ -33,13 +40,17 @@ from app.modules.articulos.api.schemas import (
     CodigoBarraActualizar,
     CodigoBarraCrear,
     CodigoBarraVista,
+    CompraLineaVista,
     CuentaCorrienteVentasConfigurar,
     CuentaCorrienteVentasVista,
     CuentaPadreSocioActualizar,
+    DocumentoCompraVista,
     DomicilioTerceroActualizar,
     DomicilioTerceroCrear,
     DomicilioTerceroVista,
     ExistenciaStockVista,
+    FacturaCompraCrear,
+    IngresoMercaderiaCrear,
     InventarioConteoGuardar,
     InventarioStockCrear,
     InventarioStockDetalleVista,
@@ -54,10 +65,14 @@ from app.modules.articulos.api.schemas import (
     PosVentaVista,
     PrecioArticuloListaVista,
     PrecioBaseActualizar,
+    PrecioBaseMasivoActualizar,
+    PrecioBaseMasivoResultado,
     PrecioListaArticuloActualizar,
     ProveedorActualizar,
     ProveedorCrear,
     ProveedorVista,
+    PuntoVentaCrear,
+    PuntoVentaVista,
     ReglaListaPrecioCrear,
     ReglaListaPrecioVista,
     SocioNegocioActualizar,
@@ -71,17 +86,23 @@ from app.modules.articulos.api.schemas import (
 from app.modules.articulos.infrastructure.models import (
     AlicuotaIva,
     Almacen,
+    AperturaCaja,
     Articulo,
     ArticuloClasificador,
     ArticuloProveedor,
     ArticuloUnidad,
+    CajaVenta,
     ClasificadorArticulo,
     CobroDocumento,
     CobroMedioPago,
     CodigoBarraArticulo,
     CuentaCorrienteVenta,
     DomicilioTercero,
+    FacturaCompra,
+    FacturaCompraDetalle,
     ImputacionCobroVenta,
+    IngresoMercaderia,
+    IngresoMercaderiaDetalle,
     InventarioStock,
     InventarioStockDetalle,
     ListaPrecio,
@@ -89,7 +110,9 @@ from app.modules.articulos.infrastructure.models import (
     MovimientoStockDetalle,
     PrecioArticuloBase,
     PrecioArticuloLista,
+    PuntoVenta,
     ReglaListaPrecioArticulo,
+    ReimpresionVenta,
     StockArticuloAlmacen,
     Tercero,
     UnidadMedida,
@@ -950,11 +973,6 @@ async def aplicar_impacto_stock(
         await sesion.flush()
     anterior = stock.cantidad_fisica
     posterior = anterior + cantidad
-    if posterior < 0:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Stock insuficiente para {articulo.codigo} - {articulo.descripcion}",
-        )
     stock.cantidad_fisica = posterior
     sesion.add(
         MovimientoStockDetalle(
@@ -1330,6 +1348,40 @@ async def obtener_inventario_stock(
     return await inventario_stock_vista(inventario, sesion)
 
 
+@router.delete(
+    "/stock/inventarios/{inventario_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(requerir_permiso("inventario.gestionar"))],
+)
+async def eliminar_inventario_stock(
+    inventario_id: UUID, sesion: AsyncSession = Depends(obtener_sesion)
+) -> Response:
+    inventario = await sesion.get(InventarioStock, inventario_id)
+    if inventario is None:
+        raise HTTPException(status_code=404, detail="Inventario no encontrado")
+    if inventario.estado != "PENDIENTE":
+        raise HTTPException(
+            status_code=409, detail="Solo se puede eliminar un inventario pendiente"
+        )
+    conteos = await sesion.scalar(
+        select(func.count(InventarioStockDetalle.id)).where(
+            InventarioStockDetalle.inventario_id == inventario.id,
+            InventarioStockDetalle.cantidad_contada.is_not(None),
+        )
+    )
+    if conteos:
+        raise HTTPException(
+            status_code=409,
+            detail="El inventario ya tiene cantidades cargadas y no se puede eliminar",
+        )
+    await sesion.execute(
+        delete(InventarioStockDetalle).where(InventarioStockDetalle.inventario_id == inventario.id)
+    )
+    await sesion.delete(inventario)
+    await sesion.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.put(
     "/stock/inventarios/{inventario_id}/conteo",
     response_model=InventarioStockVista,
@@ -1564,6 +1616,59 @@ async def actualizar_precio_base(
     return await precio_articulo_lista_vista(articulo, lista, sesion)
 
 
+@router.post(
+    "/precios/actualizar-base",
+    response_model=PrecioBaseMasivoResultado,
+    dependencies=[Depends(requerir_permiso("ventas.gestionar"))],
+)
+async def actualizar_precios_base(
+    datos: PrecioBaseMasivoActualizar,
+    sesion: AsyncSession = Depends(obtener_sesion),
+) -> PrecioBaseMasivoResultado:
+    """Fija un precio individual o aplica una variacion a un articulo o clasificador."""
+    if datos.articulo_id:
+        articulo = await sesion.get(Articulo, datos.articulo_id)
+        if articulo is None:
+            raise HTTPException(status_code=404, detail="Articulo no encontrado")
+        articulo_ids = [articulo.id]
+    else:
+        clasificador = await sesion.get(ClasificadorArticulo, datos.clasificador_id)
+        if clasificador is None:
+            raise HTTPException(status_code=404, detail="Clasificador no encontrado")
+        clasificadores = list(await sesion.scalars(select(ClasificadorArticulo)))
+        ids_grupo = {clasificador.id}
+        pendientes = [clasificador.id]
+        while pendientes:
+            padre_id = pendientes.pop()
+            hijos = [x.id for x in clasificadores if x.padre_id == padre_id]
+            nuevos = [x for x in hijos if x not in ids_grupo]
+            ids_grupo.update(nuevos)
+            pendientes.extend(nuevos)
+        articulo_ids = list(
+            await sesion.scalars(
+                select(ArticuloClasificador.articulo_id)
+                .where(ArticuloClasificador.clasificador_id.in_(ids_grupo))
+                .distinct()
+            )
+        )
+    if not articulo_ids:
+        raise HTTPException(status_code=409, detail="El alcance no contiene articulos")
+    for articulo_id in articulo_ids:
+        precio = await sesion.get(PrecioArticuloBase, articulo_id)
+        if precio is None:
+            precio = PrecioArticuloBase(articulo_id=articulo_id, precio_bruto=Decimal("0"))
+            sesion.add(precio)
+        if datos.modo == "FIJAR":
+            precio.precio_bruto = datos.valor
+        else:
+            factor = Decimal("1") + datos.valor / Decimal("100")
+            precio.precio_bruto = (precio.precio_bruto * factor).quantize(
+                Decimal("0.000001"), rounding=ROUND_HALF_UP
+            )
+    await sesion.commit()
+    return PrecioBaseMasivoResultado(articulos_actualizados=len(articulo_ids))
+
+
 @router.put(
     "/precios/listas/{lista_id}/articulos/{articulo_id}",
     response_model=PrecioArticuloListaVista,
@@ -1765,12 +1870,229 @@ async def eliminar_regla_precio_articulo(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+def apertura_caja_vista(
+    apertura: AperturaCaja, caja: CajaVenta, punto: PuntoVenta, usuario: Usuario
+) -> AperturaCajaVista:
+    return AperturaCajaVista(
+        id=apertura.id,
+        caja_id=caja.id,
+        caja_codigo=caja.codigo,
+        caja_descripcion=caja.descripcion,
+        punto_venta_id=punto.id,
+        punto_venta_codigo=punto.codigo,
+        usuario_id=usuario.id,
+        usuario_nombre=usuario.nombre_usuario,
+        efectivo_inicial=apertura.efectivo_inicial,
+        estado=apertura.estado,
+        fecha_apertura=apertura.fecha_apertura,
+        fecha_cierre=apertura.fecha_cierre,
+    )
+
+
+async def obtener_apertura_operativa(
+    usuario: Usuario,
+    sesion: AsyncSession,
+    apertura_id: UUID | None = None,
+) -> AperturaCaja:
+    consulta = select(AperturaCaja).where(AperturaCaja.estado == "ABIERTA")
+    if apertura_id:
+        consulta = consulta.where(AperturaCaja.id == apertura_id)
+    elif not usuario.es_administrador:
+        consulta = consulta.where(AperturaCaja.usuario_id == usuario.id)
+    else:
+        consulta = consulta.where(AperturaCaja.usuario_id == usuario.id)
+    apertura = await sesion.scalar(consulta)
+    if apertura is None:
+        raise HTTPException(status_code=409, detail="Debe abrir o seleccionar una caja")
+    if not usuario.es_administrador and apertura.usuario_id != usuario.id:
+        raise HTTPException(status_code=403, detail="La caja pertenece a otro usuario")
+    return apertura
+
+
+@router.get(
+    "/pos/configuracion/puntos-venta",
+    response_model=list[PuntoVentaVista],
+    dependencies=[Depends(requerir_permiso("ventas.ver"))],
+)
+async def listar_puntos_venta(
+    sesion: AsyncSession = Depends(obtener_sesion),
+) -> list[PuntoVenta]:
+    return list(await sesion.scalars(select(PuntoVenta).order_by(PuntoVenta.codigo)))
+
+
+@router.post(
+    "/pos/configuracion/puntos-venta",
+    response_model=PuntoVentaVista,
+    status_code=status.HTTP_201_CREATED,
+)
+async def crear_punto_venta(
+    datos: PuntoVentaCrear,
+    usuario: Usuario = Depends(obtener_usuario_actual),
+    sesion: AsyncSession = Depends(obtener_sesion),
+) -> PuntoVenta:
+    if not usuario.es_administrador:
+        raise HTTPException(status_code=403, detail="Solo un administrador puede configurar puntos")
+    almacen = await sesion.get(Almacen, datos.almacen_id)
+    if almacen is None or not almacen.activo:
+        raise HTTPException(status_code=400, detail="Almacen inexistente o inactivo")
+    codigo = datos.codigo.zfill(4)
+    if await sesion.scalar(select(PuntoVenta).where(PuntoVenta.codigo == codigo)):
+        raise HTTPException(status_code=409, detail="El punto de venta ya existe")
+    punto = PuntoVenta(
+        codigo=codigo,
+        descripcion=normalizar_mayusculas(datos.descripcion),
+        almacen_id=almacen.id,
+        letra="T",
+        tipo_documento="PRESUPUESTO",
+        ultimo_numero=0,
+        activo=True,
+    )
+    sesion.add(punto)
+    await sesion.commit()
+    await sesion.refresh(punto)
+    return punto
+
+
+@router.get(
+    "/pos/configuracion/cajas",
+    response_model=list[CajaVentaVista],
+    dependencies=[Depends(requerir_permiso("ventas.ver"))],
+)
+async def listar_cajas_venta(
+    punto_venta_id: UUID | None = None,
+    sesion: AsyncSession = Depends(obtener_sesion),
+) -> list[CajaVenta]:
+    consulta = select(CajaVenta).order_by(CajaVenta.codigo)
+    if punto_venta_id:
+        consulta = consulta.where(CajaVenta.punto_venta_id == punto_venta_id)
+    return list(await sesion.scalars(consulta))
+
+
+@router.post(
+    "/pos/configuracion/cajas",
+    response_model=CajaVentaVista,
+    status_code=status.HTTP_201_CREATED,
+)
+async def crear_caja_venta(
+    datos: CajaVentaCrear,
+    usuario: Usuario = Depends(obtener_usuario_actual),
+    sesion: AsyncSession = Depends(obtener_sesion),
+) -> CajaVenta:
+    if not usuario.es_administrador:
+        raise HTTPException(status_code=403, detail="Solo un administrador puede configurar cajas")
+    punto = await sesion.get(PuntoVenta, datos.punto_venta_id)
+    if punto is None or not punto.activo:
+        raise HTTPException(status_code=400, detail="Punto de venta inexistente o inactivo")
+    codigo = normalizar_mayusculas(datos.codigo)
+    existente = await sesion.scalar(
+        select(CajaVenta).where(CajaVenta.punto_venta_id == punto.id, CajaVenta.codigo == codigo)
+    )
+    if existente:
+        raise HTTPException(status_code=409, detail="La caja ya existe en el punto de venta")
+    caja = CajaVenta(
+        punto_venta_id=punto.id,
+        codigo=codigo,
+        descripcion=normalizar_mayusculas(datos.descripcion),
+        activo=True,
+    )
+    sesion.add(caja)
+    await sesion.commit()
+    await sesion.refresh(caja)
+    return caja
+
+
+@router.get(
+    "/pos/cajas/abiertas",
+    response_model=list[AperturaCajaVista],
+    dependencies=[Depends(requerir_permiso("ventas.ver"))],
+)
+async def listar_aperturas_caja(
+    usuario: Usuario = Depends(obtener_usuario_actual),
+    sesion: AsyncSession = Depends(obtener_sesion),
+) -> list[AperturaCajaVista]:
+    consulta = select(AperturaCaja).where(AperturaCaja.estado == "ABIERTA")
+    if not usuario.es_administrador:
+        consulta = consulta.where(AperturaCaja.usuario_id == usuario.id)
+    aperturas = list(await sesion.scalars(consulta.order_by(AperturaCaja.fecha_apertura)))
+    resultado = []
+    for apertura in aperturas:
+        caja = await sesion.get(CajaVenta, apertura.caja_id)
+        punto = await sesion.get(PuntoVenta, caja.punto_venta_id) if caja else None
+        responsable = await sesion.get(Usuario, apertura.usuario_id)
+        if caja and punto and responsable:
+            resultado.append(apertura_caja_vista(apertura, caja, punto, responsable))
+    return resultado
+
+
+@router.post(
+    "/pos/cajas/abrir",
+    response_model=AperturaCajaVista,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(requerir_permiso("ventas.gestionar"))],
+)
+async def abrir_caja(
+    datos: AperturaCajaCrear,
+    usuario: Usuario = Depends(obtener_usuario_actual),
+    sesion: AsyncSession = Depends(obtener_sesion),
+) -> AperturaCajaVista:
+    caja = await sesion.get(CajaVenta, datos.caja_id)
+    if caja is None or not caja.activo:
+        raise HTTPException(status_code=400, detail="Caja inexistente o inactiva")
+    punto = await sesion.get(PuntoVenta, caja.punto_venta_id)
+    if punto is None or not punto.activo:
+        raise HTTPException(status_code=400, detail="Punto de venta inactivo")
+    ocupada = await sesion.scalar(
+        select(AperturaCaja).where(
+            AperturaCaja.estado == "ABIERTA",
+            or_(AperturaCaja.caja_id == caja.id, AperturaCaja.usuario_id == usuario.id),
+        )
+    )
+    if ocupada:
+        raise HTTPException(status_code=409, detail="La caja o el usuario ya posee una apertura")
+    apertura = AperturaCaja(
+        caja_id=caja.id,
+        usuario_id=usuario.id,
+        estado="ABIERTA",
+        efectivo_inicial=datos.efectivo_inicial,
+    )
+    sesion.add(apertura)
+    await sesion.commit()
+    await sesion.refresh(apertura)
+    return apertura_caja_vista(apertura, caja, punto, usuario)
+
+
 def importe_dos_decimales(valor: Decimal) -> Decimal:
     return valor.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
+async def descuento_precio_pos(
+    articulo: Articulo,
+    lista: ListaPrecio,
+    precio_aplicado: Decimal,
+    sesion: AsyncSession,
+) -> tuple[Decimal | None, Decimal]:
+    if lista.nombre == "GENERAL":
+        return None, Decimal("0")
+    general = await sesion.scalar(
+        select(ListaPrecio).where(ListaPrecio.nombre == "GENERAL", ListaPrecio.activa.is_(True))
+    )
+    if general is None:
+        return None, Decimal("0")
+    precio_general = (
+        await precio_articulo_lista_vista(articulo, general, sesion)
+    ).precio_venta_bruto
+    if precio_general <= precio_aplicado or precio_general == 0:
+        return None, Decimal("0")
+    descuento = (Decimal("1") - precio_aplicado / precio_general) * Decimal("100")
+    return precio_general, descuento.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+
+
 async def venta_pos_vista(venta: VentaDocumento, sesion: AsyncSession) -> PosVentaVista:
     cliente = await sesion.get(Tercero, venta.cliente_id)
+    punto_venta = (
+        await sesion.get(PuntoVenta, venta.punto_venta_id) if venta.punto_venta_id else None
+    )
+    caja = await sesion.get(CajaVenta, venta.caja_id) if venta.caja_id else None
     filas = (
         await sesion.execute(
             select(VentaDocumentoDetalle, Articulo, ListaPrecio)
@@ -1790,6 +2112,15 @@ async def venta_pos_vista(venta: VentaDocumento, sesion: AsyncSession) -> PosVen
     return PosVentaVista(
         id=venta.id,
         numero=venta.numero,
+        numero_completo=(
+            f"{venta.letra} {punto_venta.codigo}-{venta.numero:08d}"
+            if punto_venta and venta.numero is not None
+            else None
+        ),
+        letra=venta.letra,
+        tipo_documento=venta.tipo_documento,
+        punto_venta_codigo=punto_venta.codigo if punto_venta else None,
+        caja_codigo=caja.codigo if caja else None,
         cliente_id=venta.cliente_id,
         cliente_nombre=cliente.razon_social if cliente else "CLIENTE DESCONOCIDO",
         almacen_id=venta.almacen_id,
@@ -1803,11 +2134,15 @@ async def venta_pos_vista(venta: VentaDocumento, sesion: AsyncSession) -> PosVen
         fecha_realizacion=venta.fecha_realizacion,
         lineas=[
             PosVentaLineaVista(
+                articulo_id=articulo.id,
                 articulo_codigo=articulo.codigo,
                 articulo_descripcion=articulo.descripcion,
+                es_pesable=articulo.es_pesable,
                 lista_nombre=lista.nombre,
                 cantidad_base=detalle.cantidad_base,
                 precio_unitario_bruto=detalle.precio_unitario_bruto,
+                precio_anterior_bruto=detalle.precio_anterior_bruto,
+                descuento_porcentual=detalle.descuento_porcentual,
                 porcentaje_iva=detalle.porcentaje_iva,
                 subtotal_neto=detalle.subtotal_neto,
                 importe_iva=detalle.importe_iva,
@@ -1869,6 +2204,144 @@ async def validar_credito_cliente(
 
 
 @router.post(
+    "/pos/borradores",
+    response_model=PosVentaVista,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(requerir_permiso("ventas.gestionar"))],
+)
+async def guardar_borrador_pos(
+    datos: PosVentaCrear,
+    usuario: Usuario = Depends(obtener_usuario_actual),
+    sesion: AsyncSession = Depends(obtener_sesion),
+) -> PosVentaVista:
+    apertura = await obtener_apertura_operativa(usuario, sesion, datos.apertura_caja_id)
+    caja = await sesion.get(CajaVenta, apertura.caja_id)
+    punto = await sesion.get(PuntoVenta, caja.punto_venta_id) if caja else None
+    if caja is None or punto is None:
+        raise HTTPException(status_code=409, detail="Configuracion de caja incompleta")
+    if datos.almacen_id != punto.almacen_id:
+        raise HTTPException(status_code=409, detail="El almacen no corresponde al punto de venta")
+    cliente = (
+        await sesion.get(Tercero, datos.cliente_id)
+        if datos.cliente_id
+        else await sesion.scalar(select(Tercero).where(Tercero.codigo == "CONSUMIDOR_FINAL"))
+    )
+    if cliente is None or not cliente.activo or not cliente.es_cliente:
+        raise HTTPException(status_code=400, detail="Cliente inexistente o inactivo")
+    venta = await sesion.get(VentaDocumento, datos.borrador_id) if datos.borrador_id else None
+    if venta:
+        if venta.estado != "BORRADOR":
+            raise HTTPException(status_code=409, detail="El documento ya no es un borrador")
+        if not usuario.es_administrador and venta.usuario_id != usuario.id:
+            raise HTTPException(status_code=403, detail="El borrador pertenece a otro usuario")
+        await sesion.execute(
+            delete(VentaDocumentoDetalle).where(VentaDocumentoDetalle.venta_id == venta.id)
+        )
+    else:
+        venta = VentaDocumento(
+            numero=None,
+            cliente_id=cliente.id,
+            almacen_id=punto.almacen_id,
+            punto_venta_id=punto.id,
+            caja_id=caja.id,
+            apertura_caja_id=apertura.id,
+            letra="T",
+            tipo_documento="PRESUPUESTO",
+            estado="BORRADOR",
+            subtotal_neto=Decimal("0"),
+            total_iva=Decimal("0"),
+            total_bruto=Decimal("0"),
+            saldo_pendiente=Decimal("0"),
+            usuario_id=usuario.id,
+        )
+        sesion.add(venta)
+        await sesion.flush()
+    venta.cliente_id = cliente.id
+    venta.subtotal_neto = Decimal("0")
+    venta.total_iva = Decimal("0")
+    venta.total_bruto = Decimal("0")
+    for linea in datos.lineas:
+        articulo = await sesion.get(Articulo, linea.articulo_id)
+        if articulo is None or not articulo.habilitado or not articulo.habilitado_venta:
+            raise HTTPException(status_code=400, detail="Articulo no habilitado para venta")
+        lista = await resolver_lista_venta(articulo.id, linea.cantidad_base, sesion)
+        precio = await precio_articulo_lista_vista(articulo, lista, sesion)
+        alicuota = await sesion.get(AlicuotaIva, articulo.alicuota_iva_id)
+        if alicuota is None:
+            raise HTTPException(status_code=409, detail="El articulo no posee IVA valido")
+        bruto = importe_dos_decimales(linea.cantidad_base * precio.precio_venta_bruto)
+        neto = importe_dos_decimales(bruto / (Decimal("1") + alicuota.porcentaje / Decimal("100")))
+        iva = bruto - neto
+        precio_anterior, descuento = await descuento_precio_pos(
+            articulo, lista, precio.precio_venta_bruto, sesion
+        )
+        venta.subtotal_neto += neto
+        venta.total_iva += iva
+        venta.total_bruto += bruto
+        sesion.add(
+            VentaDocumentoDetalle(
+                venta_id=venta.id,
+                articulo_id=articulo.id,
+                lista_precio_id=lista.id,
+                cantidad_base=linea.cantidad_base,
+                precio_unitario_bruto=precio.precio_venta_bruto,
+                precio_anterior_bruto=precio_anterior,
+                descuento_porcentual=descuento,
+                porcentaje_iva=alicuota.porcentaje,
+                subtotal_neto=neto,
+                importe_iva=iva,
+                total_bruto=bruto,
+            )
+        )
+    venta.saldo_pendiente = venta.total_bruto
+    await sesion.commit()
+    await sesion.refresh(venta)
+    return await venta_pos_vista(venta, sesion)
+
+
+@router.get(
+    "/pos/borradores",
+    response_model=list[PosVentaVista],
+    dependencies=[Depends(requerir_permiso("ventas.ver"))],
+)
+async def listar_borradores_pos(
+    apertura_caja_id: UUID | None = None,
+    usuario: Usuario = Depends(obtener_usuario_actual),
+    sesion: AsyncSession = Depends(obtener_sesion),
+) -> list[PosVentaVista]:
+    consulta = select(VentaDocumento).where(VentaDocumento.estado == "BORRADOR")
+    if apertura_caja_id:
+        consulta = consulta.where(VentaDocumento.apertura_caja_id == apertura_caja_id)
+    if not usuario.es_administrador:
+        consulta = consulta.where(VentaDocumento.usuario_id == usuario.id)
+    ventas = list(await sesion.scalars(consulta.order_by(VentaDocumento.fecha_modificacion.desc())))
+    return [await venta_pos_vista(venta, sesion) for venta in ventas]
+
+
+@router.delete(
+    "/pos/borradores/{borrador_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(requerir_permiso("ventas.gestionar"))],
+)
+async def eliminar_borrador_pos(
+    borrador_id: UUID,
+    usuario: Usuario = Depends(obtener_usuario_actual),
+    sesion: AsyncSession = Depends(obtener_sesion),
+) -> Response:
+    venta = await sesion.get(VentaDocumento, borrador_id)
+    if venta is None or venta.estado != "BORRADOR":
+        raise HTTPException(status_code=404, detail="Borrador no encontrado")
+    if not usuario.es_administrador and venta.usuario_id != usuario.id:
+        raise HTTPException(status_code=403, detail="El borrador pertenece a otro usuario")
+    await sesion.execute(
+        delete(VentaDocumentoDetalle).where(VentaDocumentoDetalle.venta_id == venta.id)
+    )
+    await sesion.delete(venta)
+    await sesion.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
     "/pos/ventas",
     response_model=PosVentaVista,
     status_code=status.HTTP_201_CREATED,
@@ -1879,10 +2352,27 @@ async def crear_venta_pos(
     usuario: Usuario = Depends(obtener_usuario_actual),
     sesion: AsyncSession = Depends(obtener_sesion),
 ) -> PosVentaVista:
-    cliente = await sesion.get(Tercero, datos.cliente_id)
+    apertura = await obtener_apertura_operativa(usuario, sesion, datos.apertura_caja_id)
+    caja = await sesion.get(CajaVenta, apertura.caja_id)
+    if caja is None:
+        raise HTTPException(status_code=409, detail="La apertura no posee una caja valida")
+    punto = await sesion.scalar(
+        select(PuntoVenta)
+        .where(PuntoVenta.id == caja.punto_venta_id, PuntoVenta.activo.is_(True))
+        .with_for_update()
+    )
+    if punto is None:
+        raise HTTPException(status_code=409, detail="Punto de venta inexistente o inactivo")
+    cliente = (
+        await sesion.get(Tercero, datos.cliente_id)
+        if datos.cliente_id
+        else await sesion.scalar(select(Tercero).where(Tercero.codigo == "CONSUMIDOR_FINAL"))
+    )
     if cliente is None or not cliente.activo or not cliente.es_cliente:
         raise HTTPException(status_code=400, detail="Cliente inexistente o inactivo")
-    almacen = await sesion.get(Almacen, datos.almacen_id)
+    if datos.almacen_id != punto.almacen_id:
+        raise HTTPException(status_code=409, detail="El almacen no corresponde al punto de venta")
+    almacen = await sesion.get(Almacen, punto.almacen_id)
     if almacen is None or not almacen.activo:
         raise HTTPException(status_code=400, detail="Almacen inexistente o inactivo")
     cantidades: dict[UUID, Decimal] = {}
@@ -1907,34 +2397,97 @@ async def crear_venta_pos(
         bruto = importe_dos_decimales(cantidad * precio.precio_venta_bruto)
         neto = importe_dos_decimales(bruto / (Decimal("1") + alicuota.porcentaje / Decimal("100")))
         iva = bruto - neto
+        precio_anterior, descuento = await descuento_precio_pos(
+            articulo, lista, precio.precio_venta_bruto, sesion
+        )
         subtotal_neto += neto
         total_iva += iva
         total_bruto += bruto
-        lineas_calculadas.append((articulo, lista, cantidad, precio, alicuota, neto, iva, bruto))
+        lineas_calculadas.append(
+            (
+                articulo,
+                lista,
+                cantidad,
+                precio,
+                precio_anterior,
+                descuento,
+                alicuota,
+                neto,
+                iva,
+                bruto,
+            )
+        )
 
-    total_pagado = importe_dos_decimales(sum((p.importe for p in datos.pagos), Decimal("0")))
+    pagos_confirmados = list(datos.pagos)
+    total_pagado = importe_dos_decimales(sum((p.importe for p in pagos_confirmados), Decimal("0")))
     if total_pagado > total_bruto:
         raise HTTPException(status_code=400, detail="Los pagos superan el total de la venta")
-    saldo_pendiente = total_bruto - total_pagado
+    saldo_pendiente = importe_dos_decimales(total_bruto - total_pagado)
+    # La pantalla y el backend calculan con distinta representacion numerica
+    # (Number en el navegador y Decimal aqui). Una diferencia de un centavo por
+    # redondeo se absorbe en el ultimo medio de pago y nunca genera deuda.
+    if Decimal("0") < saldo_pendiente <= Decimal("0.01") and pagos_confirmados:
+        ultimo = pagos_confirmados[-1]
+        pagos_confirmados[-1] = ultimo.model_copy(
+            update={"importe": importe_dos_decimales(ultimo.importe + saldo_pendiente)}
+        )
+        total_pagado = total_bruto
+        saldo_pendiente = Decimal("0.00")
     if saldo_pendiente > 0:
-        await validar_credito_cliente(cliente.id, saldo_pendiente, sesion)
+        try:
+            await validar_credito_cliente(cliente.id, saldo_pendiente, sesion)
+        except HTTPException as error:
+            raise HTTPException(
+                status_code=error.status_code,
+                detail=(
+                    f"{error.detail}. Total: ${total_bruto:.2f}; "
+                    f"pagado: ${total_pagado:.2f}; saldo: ${saldo_pendiente:.2f}"
+                ),
+            ) from error
 
-    numero = await sesion.scalar(select(Sequence("secuencia_ventas").next_value()))
-    venta = VentaDocumento(
-        numero=numero,
-        cliente_id=cliente.id,
-        almacen_id=almacen.id,
-        estado="CONFIRMADO",
-        subtotal_neto=subtotal_neto,
-        total_iva=total_iva,
-        total_bruto=total_bruto,
-        saldo_pendiente=saldo_pendiente,
-        usuario_id=usuario.id,
-    )
-    sesion.add(venta)
+    punto.ultimo_numero += 1
+    venta = await sesion.get(VentaDocumento, datos.borrador_id) if datos.borrador_id else None
+    if venta:
+        if venta.estado != "BORRADOR":
+            raise HTTPException(status_code=409, detail="El documento ya fue confirmado")
+        if venta.apertura_caja_id != apertura.id:
+            raise HTTPException(status_code=409, detail="El borrador pertenece a otra apertura")
+        if not usuario.es_administrador and venta.usuario_id != usuario.id:
+            raise HTTPException(status_code=403, detail="El borrador pertenece a otro usuario")
+        await sesion.execute(
+            delete(VentaDocumentoDetalle).where(VentaDocumentoDetalle.venta_id == venta.id)
+        )
+    else:
+        venta = VentaDocumento(usuario_id=usuario.id)
+        sesion.add(venta)
+    venta.numero = punto.ultimo_numero
+    venta.punto_venta_id = punto.id
+    venta.caja_id = caja.id
+    venta.apertura_caja_id = apertura.id
+    venta.letra = "T"
+    venta.tipo_documento = "PRESUPUESTO"
+    venta.cliente_id = cliente.id
+    venta.almacen_id = almacen.id
+    venta.estado = "CONFIRMADO"
+    venta.subtotal_neto = subtotal_neto
+    venta.total_iva = total_iva
+    venta.total_bruto = total_bruto
+    venta.saldo_pendiente = saldo_pendiente
+    venta.fecha_realizacion = datetime.now(UTC)
     await sesion.flush()
     movimiento: MovimientoStock | None = None
-    for articulo, lista, cantidad, precio, alicuota, neto, iva, bruto in lineas_calculadas:
+    for (
+        articulo,
+        lista,
+        cantidad,
+        precio,
+        precio_anterior,
+        descuento,
+        alicuota,
+        neto,
+        iva,
+        bruto,
+    ) in lineas_calculadas:
         sesion.add(
             VentaDocumentoDetalle(
                 venta_id=venta.id,
@@ -1942,6 +2495,8 @@ async def crear_venta_pos(
                 lista_precio_id=lista.id,
                 cantidad_base=cantidad,
                 precio_unitario_bruto=precio.precio_venta_bruto,
+                precio_anterior_bruto=precio_anterior,
+                descuento_porcentual=descuento,
                 porcentaje_iva=alicuota.porcentaje,
                 subtotal_neto=neto,
                 importe_iva=iva,
@@ -1951,10 +2506,14 @@ async def crear_venta_pos(
         if articulo.habilitado_inventario:
             if movimiento is None:
                 movimiento = await nuevo_movimiento(
-                    sesion, usuario, "VENTA", f"VENTA #{venta.numero}", almacen.id
+                    sesion,
+                    usuario,
+                    "PRESUPUESTO",
+                    f"PRESUPUESTO {venta.letra} {punto.codigo}-{venta.numero:08d}",
+                    almacen.id,
                 )
-                movimiento.documento_tipo = "VENTA"
-                movimiento.documento_numero = str(venta.numero)
+                movimiento.documento_tipo = "PRESUPUESTO"
+                movimiento.documento_numero = f"{venta.letra} {punto.codigo}-{venta.numero:08d}"
                 venta.movimiento_stock_id = movimiento.id
             await aplicar_impacto_stock(sesion, movimiento, articulo, almacen.id, -cantidad)
 
@@ -1979,7 +2538,7 @@ async def crear_venta_pos(
                         normalizar_mayusculas(pago.referencia) if pago.referencia else None
                     ),
                 )
-                for pago in datos.pagos
+                for pago in pagos_confirmados
             ]
         )
         sesion.add(ImputacionCobroVenta(cobro_id=cobro.id, venta_id=venta.id, importe=total_pagado))
@@ -1997,11 +2556,86 @@ async def listar_ventas_pos(
     cliente_id: UUID | None = None,
     sesion: AsyncSession = Depends(obtener_sesion),
 ) -> list[PosVentaVista]:
-    consulta = select(VentaDocumento).order_by(VentaDocumento.fecha_realizacion.desc()).limit(100)
+    consulta = (
+        select(VentaDocumento)
+        .where(VentaDocumento.estado == "CONFIRMADO")
+        .order_by(VentaDocumento.fecha_realizacion.desc())
+        .limit(100)
+    )
     if cliente_id:
         consulta = consulta.where(VentaDocumento.cliente_id == cliente_id)
     ventas = list(await sesion.scalars(consulta))
     return [await venta_pos_vista(venta, sesion) for venta in ventas]
+
+
+@router.get(
+    "/pos/ventas/{venta_id}/imprimir",
+    response_class=HTMLResponse,
+    dependencies=[Depends(requerir_permiso("ventas.ver"))],
+)
+async def imprimir_venta_pos(
+    venta_id: UUID,
+    formato: str = Query(default="ticket", pattern="^(ticket|a4)$"),
+    usuario: Usuario = Depends(obtener_usuario_actual),
+    sesion: AsyncSession = Depends(obtener_sesion),
+) -> HTMLResponse:
+    venta = await sesion.get(VentaDocumento, venta_id)
+    if venta is None or venta.estado != "CONFIRMADO":
+        raise HTTPException(status_code=404, detail="Presupuesto confirmado no encontrado")
+    vista = await venta_pos_vista(venta, sesion)
+    cantidad_impresiones = await sesion.scalar(
+        select(func.count(ReimpresionVenta.id)).where(ReimpresionVenta.venta_id == venta.id)
+    )
+    sesion.add(ReimpresionVenta(venta_id=venta.id, usuario_id=usuario.id, formato=formato.upper()))
+    await sesion.commit()
+    filas_partes = []
+    for linea in vista.lineas:
+        precio_html = f"${linea.precio_unitario_bruto:.2f}"
+        if linea.precio_anterior_bruto is not None:
+            precio_html = (
+                f"<s>${linea.precio_anterior_bruto:.2f}</s><br>"
+                f"<b>${linea.precio_unitario_bruto:.2f}</b>"
+                f"<br><small>DESC. {linea.descuento_porcentual:.2f}%</small>"
+            )
+        filas_partes.append(
+            f"<tr><td>{escape(linea.articulo_codigo)} "
+            f"{escape(linea.articulo_descripcion)}</td>"
+            f"<td class='num'>{linea.cantidad_base}</td>"
+            f"<td class='num'>{precio_html}</td>"
+            f"<td class='num'>{linea.total_bruto:.2f}</td></tr>"
+        )
+    filas = "".join(filas_partes)
+    medios = (
+        (
+            await sesion.execute(
+                select(CobroMedioPago)
+                .join(CobroDocumento, CobroDocumento.id == CobroMedioPago.cobro_id)
+                .join(ImputacionCobroVenta, ImputacionCobroVenta.cobro_id == CobroDocumento.id)
+                .where(ImputacionCobroVenta.venta_id == venta.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    pagos_html = "".join(f"<p>{escape(medio.medio)}: ${medio.importe:.2f}</p>" for medio in medios)
+    cajero = await sesion.get(Usuario, venta.usuario_id)
+    reimpresion = "<div class='reimpresion'>REIMPRESION</div>" if cantidad_impresiones else ""
+    ancho = "80mm" if formato == "ticket" else "210mm"
+    margen = "3mm" if formato == "ticket" else "14mm"
+    html = f"""<!doctype html><html><head><meta charset='utf-8'><title>{vista.numero_completo}</title>
+    <style>@page{{size:{"80mm auto" if formato == "ticket" else "A4"};margin:{margen}}}
+    body{{font-family:Arial,sans-serif;width:{ancho};max-width:100%;margin:auto;color:#111;font-size:{"11px" if formato == "ticket" else "13px"}}}
+    h1,p{{margin:4px 0}}h1{{text-align:center;font-size:18px}}.centro{{text-align:center}}.reimpresion{{border:1px solid;text-align:center;font-weight:bold;padding:4px}}
+    table{{width:100%;border-collapse:collapse;margin-top:8px}}th,td{{border-bottom:1px dashed #777;padding:5px 2px;text-align:left}}.num{{text-align:right;white-space:nowrap}}
+    .total{{font-size:18px;font-weight:bold;text-align:right;margin-top:10px}}.acciones{{margin:12px 0;text-align:center}}@media print{{.acciones{{display:none}}}}</style></head>
+    <body>{reimpresion}<h1>PRESUPUESTO</h1><p class='centro'><b>{escape(vista.numero_completo or "")}</b></p>
+    <p class='centro'>DOCUMENTO INTERNO - NO VALIDO COMO FACTURA</p><hr>
+    <p>Fecha: {vista.fecha_realizacion.astimezone().strftime("%d/%m/%Y %H:%M")}</p>
+    <p>Caja: {escape(vista.caja_codigo or "")}</p><p>Cajero: {escape(cajero.nombre_usuario if cajero else "")}</p><p>Cliente: {escape(vista.cliente_nombre)}</p>
+    <table><thead><tr><th>Articulo</th><th class='num'>Cant.</th><th class='num'>Precio</th><th class='num'>Total</th></tr></thead><tbody>{filas}</tbody></table>
+    <p class='total'>TOTAL ${vista.total_bruto:.2f}</p>{pagos_html}<p class='num'>Saldo pendiente: ${vista.saldo_pendiente:.2f}</p>
+    <div class='acciones'><button onclick='window.print()'>Imprimir</button></div></body></html>"""
+    return HTMLResponse(html)
 
 
 @router.get(
@@ -2018,6 +2652,304 @@ async def obtener_venta_pos(
     return await venta_pos_vista(venta, sesion)
 
 
+async def validar_articulo_proveedor(
+    articulo_id: UUID, proveedor_id: UUID, sesion: AsyncSession
+) -> Articulo:
+    articulo = await sesion.get(Articulo, articulo_id)
+    vinculo = await sesion.scalar(
+        select(ArticuloProveedor).where(
+            ArticuloProveedor.articulo_id == articulo_id,
+            ArticuloProveedor.proveedor_id == proveedor_id,
+            ArticuloProveedor.activo.is_(True),
+        )
+    )
+    if (
+        articulo is None
+        or not articulo.habilitado
+        or not articulo.habilitado_compra
+        or vinculo is None
+    ):
+        raise HTTPException(status_code=400, detail="Articulo no habilitado para el proveedor")
+    return articulo
+
+
+async def documento_compra_vista(
+    documento: IngresoMercaderia | FacturaCompra, sesion: AsyncSession
+) -> DocumentoCompraVista:
+    proveedor = await sesion.get(Tercero, documento.proveedor_id)
+    almacen = await sesion.get(Almacen, documento.almacen_id)
+    es_factura = isinstance(documento, FacturaCompra)
+    modelo_detalle = FacturaCompraDetalle if es_factura else IngresoMercaderiaDetalle
+    filas = (
+        await sesion.execute(
+            select(modelo_detalle, Articulo)
+            .join(Articulo, Articulo.id == modelo_detalle.articulo_id)
+            .where(
+                (modelo_detalle.factura_id if es_factura else modelo_detalle.ingreso_id)
+                == documento.id
+            )
+            .order_by(Articulo.codigo)
+        )
+    ).all()
+    return DocumentoCompraVista(
+        id=documento.id,
+        numero=documento.numero,
+        tipo="FACTURA" if es_factura else "INGRESO",
+        proveedor_id=documento.proveedor_id,
+        proveedor_nombre=proveedor.razon_social if proveedor else "PROVEEDOR DESCONOCIDO",
+        almacen_id=documento.almacen_id,
+        almacen_codigo=almacen.codigo if almacen else "",
+        estado=documento.estado,
+        fecha_realizacion=documento.fecha_realizacion,
+        numero_proveedor=documento.numero_proveedor if es_factura else None,
+        ingreso_id=documento.ingreso_id if es_factura else None,
+        politica_costo=documento.politica_costo if es_factura else None,
+        total_bruto=documento.total_bruto if es_factura else None,
+        lineas=[
+            CompraLineaVista(
+                id=detalle.id,
+                articulo_id=articulo.id,
+                articulo_codigo=articulo.codigo,
+                articulo_descripcion=articulo.descripcion,
+                cantidad_base=detalle.cantidad_base,
+                costo_bruto_unitario=detalle.costo_bruto_unitario if es_factura else None,
+                costo_anterior=detalle.costo_anterior if es_factura else None,
+                costo_resultante=detalle.costo_resultante if es_factura else None,
+                politica_costo=detalle.politica_costo if es_factura else None,
+                advertencia=detalle.advertencia if es_factura else None,
+                total_bruto=detalle.total_bruto if es_factura else None,
+            )
+            for detalle, articulo in filas
+        ],
+    )
+
+
+@router.post(
+    "/compras/ingresos",
+    response_model=DocumentoCompraVista,
+    status_code=201,
+    dependencies=[Depends(requerir_permiso("compras.gestionar"))],
+)
+async def crear_ingreso_mercaderia(
+    datos: IngresoMercaderiaCrear,
+    usuario: Usuario = Depends(obtener_usuario_actual),
+    sesion: AsyncSession = Depends(obtener_sesion),
+) -> DocumentoCompraVista:
+    proveedor = await sesion.get(Tercero, datos.proveedor_id)
+    almacen = await sesion.get(Almacen, datos.almacen_id)
+    if proveedor is None or not proveedor.activo or not proveedor.es_proveedor:
+        raise HTTPException(status_code=400, detail="Proveedor inexistente o inactivo")
+    if almacen is None or not almacen.activo:
+        raise HTTPException(status_code=400, detail="Almacen inexistente o inactivo")
+    numero = await sesion.scalar(select(Sequence("secuencia_ingresos_mercaderia").next_value()))
+    movimiento = await nuevo_movimiento(
+        sesion, usuario, "INGRESO_MERCADERIA", f"INGRESO DE MERCADERIA {numero}", almacen.id
+    )
+    ingreso = IngresoMercaderia(
+        numero=numero,
+        proveedor_id=proveedor.id,
+        almacen_id=almacen.id,
+        estado="CONFIRMADO",
+        observacion=normalizar_mayusculas(datos.observacion) if datos.observacion else None,
+        movimiento_stock_id=movimiento.id,
+        usuario_id=usuario.id,
+    )
+    sesion.add(ingreso)
+    await sesion.flush()
+    cantidades: dict[UUID, Decimal] = {}
+    for linea in datos.lineas:
+        cantidades[linea.articulo_id] = (
+            cantidades.get(linea.articulo_id, Decimal("0")) + linea.cantidad_base
+        )
+    for articulo_id, cantidad in cantidades.items():
+        articulo = await validar_articulo_proveedor(articulo_id, proveedor.id, sesion)
+        stock = await sesion.scalar(
+            select(StockArticuloAlmacen)
+            .where(
+                StockArticuloAlmacen.articulo_id == articulo.id,
+                StockArticuloAlmacen.almacen_id == almacen.id,
+            )
+            .with_for_update()
+        )
+        anterior = stock.cantidad_fisica if stock else Decimal("0")
+        sesion.add(
+            IngresoMercaderiaDetalle(
+                ingreso_id=ingreso.id,
+                articulo_id=articulo.id,
+                cantidad_base=cantidad,
+                stock_anterior=anterior,
+            )
+        )
+        await aplicar_impacto_stock(sesion, movimiento, articulo, almacen.id, cantidad)
+    await sesion.commit()
+    await sesion.refresh(ingreso)
+    return await documento_compra_vista(ingreso, sesion)
+
+
+@router.get(
+    "/compras/ingresos",
+    response_model=list[DocumentoCompraVista],
+    dependencies=[Depends(requerir_permiso("compras.ver"))],
+)
+async def listar_ingresos_mercaderia(
+    proveedor_id: UUID | None = None,
+    pendientes: bool = False,
+    sesion: AsyncSession = Depends(obtener_sesion),
+) -> list[DocumentoCompraVista]:
+    consulta = select(IngresoMercaderia).order_by(IngresoMercaderia.numero.desc()).limit(100)
+    if proveedor_id:
+        consulta = consulta.where(IngresoMercaderia.proveedor_id == proveedor_id)
+    if pendientes:
+        consulta = consulta.where(IngresoMercaderia.estado == "CONFIRMADO")
+    return [await documento_compra_vista(x, sesion) for x in await sesion.scalars(consulta)]
+
+
+@router.post(
+    "/compras/facturas",
+    response_model=DocumentoCompraVista,
+    status_code=201,
+    dependencies=[Depends(requerir_permiso("compras.gestionar"))],
+)
+async def crear_factura_compra(
+    datos: FacturaCompraCrear,
+    usuario: Usuario = Depends(obtener_usuario_actual),
+    sesion: AsyncSession = Depends(obtener_sesion),
+) -> DocumentoCompraVista:
+    proveedor = await sesion.get(Tercero, datos.proveedor_id)
+    almacen = await sesion.get(Almacen, datos.almacen_id)
+    if proveedor is None or not proveedor.activo or not proveedor.es_proveedor:
+        raise HTTPException(400, "Proveedor inexistente o inactivo")
+    if almacen is None or not almacen.activo:
+        raise HTTPException(400, "Almacen inexistente o inactivo")
+    ingreso = await sesion.get(IngresoMercaderia, datos.ingreso_id) if datos.ingreso_id else None
+    if datos.ingreso_id and (
+        ingreso is None
+        or ingreso.estado != "CONFIRMADO"
+        or ingreso.proveedor_id != proveedor.id
+        or ingreso.almacen_id != almacen.id
+    ):
+        raise HTTPException(409, "El ingreso no esta disponible para esta factura")
+    lineas_entrada = {x.articulo_id: x for x in datos.lineas}
+    detalles_ingreso: dict[UUID, IngresoMercaderiaDetalle] = {}
+    if ingreso:
+        items = list(
+            await sesion.scalars(
+                select(IngresoMercaderiaDetalle).where(
+                    IngresoMercaderiaDetalle.ingreso_id == ingreso.id
+                )
+            )
+        )
+        detalles_ingreso = {x.articulo_id: x for x in items}
+        if set(detalles_ingreso) != set(lineas_entrada):
+            raise HTTPException(400, "La factura debe incluir todos los articulos del ingreso")
+        if any(
+            lineas_entrada[k].cantidad_base != v.cantidad_base for k, v in detalles_ingreso.items()
+        ):
+            raise HTTPException(400, "Las cantidades deben coincidir con el ingreso")
+    numero = await sesion.scalar(select(Sequence("secuencia_facturas_compra").next_value()))
+    movimiento = (
+        None
+        if ingreso
+        else await nuevo_movimiento(
+            sesion, usuario, "FACTURA_COMPRA", f"FACTURA COMPRA {numero}", almacen.id
+        )
+    )
+    factura = FacturaCompra(
+        numero=numero,
+        numero_proveedor=normalizar_mayusculas(datos.numero_proveedor),
+        proveedor_id=proveedor.id,
+        almacen_id=almacen.id,
+        ingreso_id=ingreso.id if ingreso else None,
+        politica_costo=datos.politica_costo,
+        total_bruto=Decimal("0"),
+        estado="CONFIRMADO",
+        movimiento_stock_id=movimiento.id if movimiento else None,
+        usuario_id=usuario.id,
+    )
+    sesion.add(factura)
+    await sesion.flush()
+    total = Decimal("0")
+    for articulo_id, linea in lineas_entrada.items():
+        articulo = await validar_articulo_proveedor(articulo_id, proveedor.id, sesion)
+        stock = await sesion.scalar(
+            select(StockArticuloAlmacen)
+            .where(
+                StockArticuloAlmacen.articulo_id == articulo.id,
+                StockArticuloAlmacen.almacen_id == almacen.id,
+            )
+            .with_for_update()
+        )
+        stock_anterior = (
+            detalles_ingreso[articulo_id].stock_anterior
+            if ingreso
+            else (stock.cantidad_fisica if stock else Decimal("0"))
+        )
+        costo = await sesion.get(PrecioArticuloBase, articulo.id)
+        if costo is None:
+            costo = PrecioArticuloBase(articulo_id=articulo.id, precio_bruto=Decimal("0"))
+            sesion.add(costo)
+        anterior = costo.precio_bruto
+        politica = linea.politica_costo or datos.politica_costo
+        advertencia = None
+        if politica == "NO_MODIFICAR":
+            resultante = anterior
+        elif politica == "REEMPLAZAR":
+            resultante = linea.costo_bruto_unitario
+        elif stock_anterior <= 0:
+            resultante = linea.costo_bruto_unitario
+            advertencia = (
+                "STOCK ANTERIOR CERO O NEGATIVO: SE TOMO EL COSTO BRUTO NUEVO SIN PROMEDIAR"
+            )
+        else:
+            resultante = (
+                (stock_anterior * anterior) + (linea.cantidad_base * linea.costo_bruto_unitario)
+            ) / (stock_anterior + linea.cantidad_base)
+        resultante = resultante.quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+        if politica != "NO_MODIFICAR":
+            costo.precio_bruto = resultante
+        bruto = importe_dos_decimales(linea.cantidad_base * linea.costo_bruto_unitario)
+        total += bruto
+        sesion.add(
+            FacturaCompraDetalle(
+                factura_id=factura.id,
+                articulo_id=articulo.id,
+                ingreso_detalle_id=detalles_ingreso[articulo_id].id if ingreso else None,
+                cantidad_base=linea.cantidad_base,
+                costo_bruto_unitario=linea.costo_bruto_unitario,
+                costo_anterior=anterior,
+                costo_resultante=resultante,
+                stock_anterior=stock_anterior,
+                politica_costo=politica,
+                advertencia=advertencia,
+                total_bruto=bruto,
+            )
+        )
+        if movimiento:
+            await aplicar_impacto_stock(
+                sesion, movimiento, articulo, almacen.id, linea.cantidad_base
+            )
+    factura.total_bruto = importe_dos_decimales(total)
+    if ingreso:
+        ingreso.estado = "FACTURADO"
+    await sesion.commit()
+    await sesion.refresh(factura)
+    return await documento_compra_vista(factura, sesion)
+
+
+@router.get(
+    "/compras/facturas",
+    response_model=list[DocumentoCompraVista],
+    dependencies=[Depends(requerir_permiso("compras.ver"))],
+)
+async def listar_facturas_compra(
+    sesion: AsyncSession = Depends(obtener_sesion),
+) -> list[DocumentoCompraVista]:
+    items = await sesion.scalars(
+        select(FacturaCompra).order_by(FacturaCompra.numero.desc()).limit(100)
+    )
+    return [await documento_compra_vista(x, sesion) for x in items]
+
+
 @router.get(
     "",
     response_model=list[ArticuloResumen],
@@ -2026,6 +2958,7 @@ async def obtener_venta_pos(
 async def listar_articulos(
     buscar: str | None = Query(default=None, max_length=100),
     clasificador_ids: Annotated[list[UUID] | None, Query()] = None,
+    proveedor_id: UUID | None = None,
     incluir_inactivos: bool = False,
     sesion: AsyncSession = Depends(obtener_sesion),
 ) -> list[ArticuloResumen]:
@@ -2038,6 +2971,16 @@ async def listar_articulos(
             .where(
                 ArticuloClasificador.articulo_id == Articulo.id,
                 ArticuloClasificador.clasificador_id.in_(clasificador_ids),
+            )
+            .exists()
+        )
+    if proveedor_id:
+        consulta = consulta.where(
+            select(ArticuloProveedor.id)
+            .where(
+                ArticuloProveedor.articulo_id == Articulo.id,
+                ArticuloProveedor.proveedor_id == proveedor_id,
+                ArticuloProveedor.activo.is_(True),
             )
             .exists()
         )

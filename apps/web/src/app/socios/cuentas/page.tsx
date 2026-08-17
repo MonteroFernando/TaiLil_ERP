@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 
-const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
+const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api/v1";
 type Socio = { id:string; codigo:string; razon_social:string; cuenta_padre_id:string|null };
 
 export default function CuentasSocios() {

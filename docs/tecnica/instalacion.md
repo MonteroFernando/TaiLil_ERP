@@ -7,6 +7,8 @@
 - PostgreSQL 18 o Docker Desktop.
 - Git.
 
+En Windows, el backend instala `tzdata` como dependencia explicita. Python lo utiliza para resolver `America/Argentina/Buenos_Aires` y calcular correctamente el inicio de la jornada operativa.
+
 ## Configuracion
 
 El archivo `.env` esta ignorado por Git. Completar localmente:
@@ -23,8 +25,8 @@ Desde la raiz:
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-pip install -e "apps/api[dev]"
-uvicorn app.main:app --reload --app-dir apps/api
+pip install -r apps/api/requirements.txt
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8000 --app-dir apps/api
 ```
 
 Antes del primer inicio, aplicar la base y crear el administrador:
@@ -50,7 +52,11 @@ npm install
 npm run dev
 ```
 
-Abrir `http://localhost:3000`.
+El frontend escucha en `0.0.0.0:3000` y reenvia internamente `/api/v1` al backend local. Desde la misma PC se abre `http://localhost:3000`; desde otro equipo de la red se utiliza la IPv4 del servidor, por ejemplo `http://192.168.1.62:3000`.
+
+El proxy evita configurar la IP del servidor dentro del navegador y mantiene FastAPI protegido en `127.0.0.1`. Si cambia la IPv4 de la PC, solamente cambia la direccion utilizada para abrir el sistema.
+
+En Windows debe permitirse una conexion TCP entrante al puerto `3000` para el perfil de red privada. No se recomienda habilitarla para redes publicas.
 
 El primer acceso solicita reemplazar la contraseña temporal del administrador.
 

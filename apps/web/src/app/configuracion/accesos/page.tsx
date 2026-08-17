@@ -3,7 +3,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
-const apiUrl=process.env.NEXT_PUBLIC_API_URL??"http://localhost:8000/api/v1";
+const apiUrl=process.env.NEXT_PUBLIC_API_URL??"/api/v1";
 type Indice="usuarios"|"perfiles"|"permisos";
 type Permiso={id:string;codigo:string;modulo:string;accion:string;descripcion:string};
 type Perfil={id:string;nombre:string;descripcion:string|null;activo:boolean;es_sistema:boolean;permiso_ids:string[]};

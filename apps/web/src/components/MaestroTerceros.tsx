@@ -1,7 +1,7 @@
 "use client";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 
-const apiUrl=process.env.NEXT_PUBLIC_API_URL??"http://localhost:8000/api/v1";
+const apiUrl=process.env.NEXT_PUBLIC_API_URL??"/api/v1";
 const condicionesIva=[[1,"IVA RESPONSABLE INSCRIPTO"],[4,"IVA SUJETO EXENTO"],[5,"CONSUMIDOR FINAL"],[6,"RESPONSABLE MONOTRIBUTO"],[7,"SUJETO NO CATEGORIZADO"],[8,"PROVEEDOR DEL EXTERIOR"],[9,"CLIENTE DEL EXTERIOR"],[10,"IVA LIBERADO"],[13,"MONOTRIBUTISTA SOCIAL"],[15,"IVA NO ALCANZADO"],[16,"MONOTRIBUTO PROMOVIDO"]] as const;
 type Pestana="general"|"fiscal"|"domicilios"|"agrupacion";
 type Socio={id:string;cuenta_padre_id:string|null;cuenta_padre_cliente_id:string|null;cuenta_padre_proveedor_id:string|null;codigo:string;razon_social:string;nombre_fantasia:string|null;tipo_persona:"fisica"|"juridica";tipo_documento:string;numero_documento:string;condicion_iva_codigo:number;condicion_iibb:string|null;numero_iibb:string|null;actividad_arca_codigo:string|null;actividad_arca_descripcion:string|null;activo:boolean};

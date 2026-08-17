@@ -1,0 +1,19 @@
+# TaiLil ERP - Backend
+# Dependencias de ejecucion
+alembic>=1.16,<2
+asyncpg>=0.30,<1
+fastapi>=0.116,<1
+pydantic-settings>=2.10,<3
+pwdlib[argon2]>=0.2,<1
+PyJWT>=2.10,<3
+python-multipart>=0.0.20,<1
+SQLAlchemy[asyncio]>=2.0,<3
+tzdata>=2025.2
+uvicorn[standard]>=0.35,<1
+
+# Herramientas de desarrollo y pruebas
+httpx>=0.28,<1
+mypy>=1.17,<2
+pytest>=8.4,<9
+pytest-asyncio>=1.1,<2
+ruff>=0.12,<1

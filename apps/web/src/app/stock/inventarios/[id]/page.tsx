@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 
-const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
+const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api/v1";
 type Linea={id:string;articulo_codigo:string;articulo_descripcion:string;cantidad_esperada:string;cantidad_contada:string|null;diferencia:string|null;observacion:string|null};
 type Inventario={id:string;numero:number;almacen_codigo:string;almacen_descripcion:string;estado:string;observacion:string|null;usuario_creacion:string;usuario_finalizacion:string|null;fecha_creacion:string;fecha_finalizacion:string|null;detalles:Linea[]};
 

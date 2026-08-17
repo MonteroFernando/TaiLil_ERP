@@ -121,7 +121,6 @@ class StockArticuloAlmacen(Base):
     __tablename__ = "stocks_articulos_almacenes"
     __table_args__ = (
         UniqueConstraint("articulo_id", "almacen_id", name="uq_stock_articulo_almacen"),
-        CheckConstraint("cantidad_fisica >= 0", name="stock_fisico_no_negativo"),
         CheckConstraint("cantidad_pedida >= 0", name="stock_pedido_no_negativo"),
         CheckConstraint("cantidad_reservada >= 0", name="stock_reservado_no_negativo"),
     )
@@ -220,7 +219,6 @@ class InventarioStockDetalle(Base):
     __tablename__ = "inventarios_stock_detalles"
     __table_args__ = (
         UniqueConstraint("inventario_id", "articulo_id", name="uq_inventario_articulo"),
-        CheckConstraint("cantidad_esperada >= 0", name="inventario_esperada_no_negativa"),
         CheckConstraint(
             "cantidad_contada IS NULL OR cantidad_contada >= 0",
             name="inventario_contada_no_negativa",
@@ -303,11 +301,83 @@ class ReglaListaPrecioArticulo(Base):
     activa: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
-class VentaDocumento(Base):
-    __tablename__ = "ventas_documentos"
+class PuntoVenta(Base):
+    __tablename__ = "puntos_venta"
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    numero: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)
+    codigo: Mapped[str] = mapped_column(String(4), unique=True, index=True)
+    descripcion: Mapped[str] = mapped_column(String(120))
+    letra: Mapped[str] = mapped_column(String(1), default="T")
+    tipo_documento: Mapped[str] = mapped_column(String(30), default="PRESUPUESTO")
+    almacen_id: Mapped[UUID] = mapped_column(ForeignKey("almacenes.id", ondelete="RESTRICT"))
+    ultimo_numero: Mapped[int] = mapped_column(BigInteger, default=0)
+    activo: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class CajaVenta(Base):
+    __tablename__ = "cajas_ventas"
+    __table_args__ = (UniqueConstraint("punto_venta_id", "codigo", name="uq_caja_punto_codigo"),)
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    punto_venta_id: Mapped[UUID] = mapped_column(
+        ForeignKey("puntos_venta.id", ondelete="RESTRICT"), index=True
+    )
+    codigo: Mapped[str] = mapped_column(String(20))
+    descripcion: Mapped[str] = mapped_column(String(120))
+    activo: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class AperturaCaja(Base):
+    __tablename__ = "aperturas_cajas"
+    __table_args__ = (
+        Index(
+            "uq_apertura_caja_abierta",
+            "caja_id",
+            unique=True,
+            postgresql_where=text("estado = 'ABIERTA'"),
+        ),
+        Index(
+            "uq_apertura_usuario_abierta",
+            "usuario_id",
+            unique=True,
+            postgresql_where=text("estado = 'ABIERTA'"),
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    caja_id: Mapped[UUID] = mapped_column(
+        ForeignKey("cajas_ventas.id", ondelete="RESTRICT"), index=True
+    )
+    usuario_id: Mapped[UUID] = mapped_column(
+        ForeignKey("usuarios.id", ondelete="RESTRICT"), index=True
+    )
+    estado: Mapped[str] = mapped_column(String(20), default="ABIERTA", index=True)
+    efectivo_inicial: Mapped[Decimal] = mapped_column(Numeric(18, 2))
+    fecha_apertura: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+    fecha_cierre: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class VentaDocumento(Base):
+    __tablename__ = "ventas_documentos"
+    __table_args__ = (
+        UniqueConstraint("punto_venta_id", "letra", "numero", name="uq_venta_punto_letra_numero"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    numero: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
+    punto_venta_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("puntos_venta.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    caja_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("cajas_ventas.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    apertura_caja_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("aperturas_cajas.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    letra: Mapped[str] = mapped_column(String(1), default="T")
+    tipo_documento: Mapped[str] = mapped_column(String(30), default="PRESUPUESTO")
     cliente_id: Mapped[UUID] = mapped_column(
         ForeignKey("socios.id", ondelete="RESTRICT"), index=True
     )
@@ -324,6 +394,9 @@ class VentaDocumento(Base):
     fecha_realizacion: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), index=True
     )
+    fecha_modificacion: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class VentaDocumentoDetalle(Base):
@@ -339,6 +412,8 @@ class VentaDocumentoDetalle(Base):
     )
     cantidad_base: Mapped[Decimal] = mapped_column(Numeric(18, 6))
     precio_unitario_bruto: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    precio_anterior_bruto: Mapped[Decimal | None] = mapped_column(Numeric(18, 6), nullable=True)
+    descuento_porcentual: Mapped[Decimal] = mapped_column(Numeric(9, 4), default=Decimal("0"))
     porcentaje_iva: Mapped[Decimal] = mapped_column(Numeric(9, 4))
     subtotal_neto: Mapped[Decimal] = mapped_column(Numeric(18, 2))
     importe_iva: Mapped[Decimal] = mapped_column(Numeric(18, 2))
@@ -385,6 +460,18 @@ class ImputacionCobroVenta(Base):
         ForeignKey("ventas_documentos.id", ondelete="RESTRICT"), index=True
     )
     importe: Mapped[Decimal] = mapped_column(Numeric(18, 2))
+
+
+class ReimpresionVenta(Base):
+    __tablename__ = "reimpresiones_ventas"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    venta_id: Mapped[UUID] = mapped_column(
+        ForeignKey("ventas_documentos.id", ondelete="RESTRICT"), index=True
+    )
+    usuario_id: Mapped[UUID] = mapped_column(ForeignKey("usuarios.id", ondelete="RESTRICT"))
+    formato: Mapped[str] = mapped_column(String(10))
+    fecha: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class ArticuloUnidad(Base):
@@ -518,6 +605,93 @@ class ArticuloProveedor(Base):
     codigo_proveedor: Mapped[str] = mapped_column(String(100))
     principal: Mapped[bool] = mapped_column(Boolean, default=False)
     activo: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class IngresoMercaderia(Base):
+    __tablename__ = "ingresos_mercaderia"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    numero: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)
+    proveedor_id: Mapped[UUID] = mapped_column(
+        ForeignKey("socios.id", ondelete="RESTRICT"), index=True
+    )
+    almacen_id: Mapped[UUID] = mapped_column(
+        ForeignKey("almacenes.id", ondelete="RESTRICT"), index=True
+    )
+    estado: Mapped[str] = mapped_column(String(20), default="CONFIRMADO", index=True)
+    observacion: Mapped[str | None] = mapped_column(Text, nullable=True)
+    movimiento_stock_id: Mapped[UUID] = mapped_column(
+        ForeignKey("movimientos_stock.id", ondelete="RESTRICT"), unique=True
+    )
+    usuario_id: Mapped[UUID] = mapped_column(ForeignKey("usuarios.id", ondelete="RESTRICT"))
+    fecha_realizacion: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+
+
+class IngresoMercaderiaDetalle(Base):
+    __tablename__ = "ingresos_mercaderia_detalles"
+    __table_args__ = (UniqueConstraint("ingreso_id", "articulo_id", name="uq_ingreso_articulo"),)
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    ingreso_id: Mapped[UUID] = mapped_column(
+        ForeignKey("ingresos_mercaderia.id", ondelete="RESTRICT"), index=True
+    )
+    articulo_id: Mapped[UUID] = mapped_column(
+        ForeignKey("articulos.id", ondelete="RESTRICT"), index=True
+    )
+    cantidad_base: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    stock_anterior: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+
+
+class FacturaCompra(Base):
+    __tablename__ = "facturas_compra"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    numero: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)
+    numero_proveedor: Mapped[str] = mapped_column(String(80), index=True)
+    proveedor_id: Mapped[UUID] = mapped_column(
+        ForeignKey("socios.id", ondelete="RESTRICT"), index=True
+    )
+    almacen_id: Mapped[UUID] = mapped_column(
+        ForeignKey("almacenes.id", ondelete="RESTRICT"), index=True
+    )
+    ingreso_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("ingresos_mercaderia.id", ondelete="RESTRICT"), nullable=True, unique=True
+    )
+    politica_costo: Mapped[str] = mapped_column(String(20))
+    total_bruto: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=Decimal("0"))
+    estado: Mapped[str] = mapped_column(String(20), default="CONFIRMADO", index=True)
+    movimiento_stock_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("movimientos_stock.id", ondelete="RESTRICT"), nullable=True, unique=True
+    )
+    usuario_id: Mapped[UUID] = mapped_column(ForeignKey("usuarios.id", ondelete="RESTRICT"))
+    fecha_realizacion: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+
+
+class FacturaCompraDetalle(Base):
+    __tablename__ = "facturas_compra_detalles"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    factura_id: Mapped[UUID] = mapped_column(
+        ForeignKey("facturas_compra.id", ondelete="RESTRICT"), index=True
+    )
+    articulo_id: Mapped[UUID] = mapped_column(
+        ForeignKey("articulos.id", ondelete="RESTRICT"), index=True
+    )
+    ingreso_detalle_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("ingresos_mercaderia_detalles.id", ondelete="RESTRICT"), nullable=True
+    )
+    cantidad_base: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    costo_bruto_unitario: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    costo_anterior: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    costo_resultante: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    stock_anterior: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    politica_costo: Mapped[str] = mapped_column(String(20))
+    advertencia: Mapped[str | None] = mapped_column(String(250), nullable=True)
+    total_bruto: Mapped[Decimal] = mapped_column(Numeric(18, 2))
 
 
 # Alias transitorios para mantener compatibles los casos de uso existentes.

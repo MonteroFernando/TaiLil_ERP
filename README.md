@@ -30,11 +30,12 @@ npm run dev
 Con el entorno virtual del backend activo:
 
 ```powershell
-pip install -e "apps/api[dev]"
-uvicorn app.main:app --reload --app-dir apps/api
+pip install -r apps/api/requirements.txt
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8000 --app-dir apps/api
 ```
 
 - Web: `http://localhost:3000`
+- Web desde la red local: `http://IP-DEL-SERVIDOR:3000`
 - API: `http://localhost:8000/api/v1`
 - Swagger: `http://localhost:8000/docs`
 - Estado: `http://localhost:8000/api/v1/sistema/estado`

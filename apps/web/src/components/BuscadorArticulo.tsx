@@ -1,25 +1,32 @@
 "use client";
 
-import { KeyboardEvent, useEffect, useRef, useState } from "react";
+import { KeyboardEvent, RefObject, useEffect, useRef, useState } from "react";
 
-const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
+const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api/v1";
 export type ArticuloBuscado = {
   id: string;
   codigo: string;
   descripcion: string;
   habilitado_inventario: boolean;
+  es_pesable: boolean;
 };
 
 export default function BuscadorArticulo({
   seleccionar,
+  seleccionarConCantidad,
   cambiarTexto,
   soloInventario = true,
   requerido = false,
+  referenciaEntrada,
+  limpiarAlSeleccionar = false,
 }: {
   seleccionar: (articulo: ArticuloBuscado | null) => void;
+  seleccionarConCantidad?: (articulo: ArticuloBuscado, cantidad: number) => void;
   cambiarTexto?: (texto: string) => void;
   soloInventario?: boolean;
   requerido?: boolean;
+  referenciaEntrada?: RefObject<HTMLInputElement | null>;
+  limpiarAlSeleccionar?: boolean;
 }) {
   const [texto, setTexto] = useState("");
   const [resultados, setResultados] = useState<ArticuloBuscado[]>([]);
@@ -28,11 +35,13 @@ export default function BuscadorArticulo({
   const contenedor = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!texto.trim()) {
+    const coincidenciaMultiplicador = texto.trim().match(/^(\d+(?:[.,]\d+)?)\s*\*\s*(.+)$/);
+    const textoBusqueda = coincidenciaMultiplicador?.[2] ?? texto;
+    if (!textoBusqueda.trim()) {
       return;
     }
     const temporizador = window.setTimeout(async () => {
-      const r = await fetch(`${apiUrl}/articulos?buscar=${encodeURIComponent(texto)}`, {
+      const r = await fetch(`${apiUrl}/articulos?buscar=${encodeURIComponent(textoBusqueda)}`, {
         credentials: "include",
       });
       if (!r.ok) return;
@@ -54,10 +63,16 @@ export default function BuscadorArticulo({
   }, []);
 
   function elegir(articulo: ArticuloBuscado) {
-    setTexto(`${articulo.codigo} - ${articulo.descripcion}`);
+    const coincidenciaMultiplicador = texto.trim().match(/^(\d+(?:[.,]\d+)?)\s*\*\s*(.+)$/);
+    const cantidad = coincidenciaMultiplicador
+      ? Number(coincidenciaMultiplicador[1].replace(",", "."))
+      : 1;
+    setTexto(limpiarAlSeleccionar ? "" : `${articulo.codigo} - ${articulo.descripcion}`);
     setAbierto(false);
-    seleccionar(articulo);
+    if (seleccionarConCantidad) seleccionarConCantidad(articulo, cantidad);
+    else seleccionar(articulo);
     cambiarTexto?.("");
+    window.setTimeout(() => referenciaEntrada?.current?.focus(), 0);
   }
 
   function manejarTeclado(e: KeyboardEvent<HTMLInputElement>) {
@@ -77,6 +92,7 @@ export default function BuscadorArticulo({
   return (
     <div ref={contenedor} className="relative">
       <input
+        ref={referenciaEntrada}
         className="w-full rounded-xl border p-3"
         value={texto}
         placeholder="Codigo, descripcion, barra o codigo de proveedor"

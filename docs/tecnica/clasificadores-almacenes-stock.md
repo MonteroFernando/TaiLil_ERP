@@ -4,7 +4,7 @@ La migracion `20260816_0013` incorpora `clasificadores_articulos`, `articulos_cl
 
 `articulos_clasificadores` implementa una relacion muchos a muchos mediante UUID. `clasificadores_articulos` no posee codigo funcional y conserva los campos `tipo` y `nombre`; `padre_id` es una referencia recursiva que permite profundidad variable. Todos los textos de negocio pasan por la normalizacion general a mayusculas.
 
-`stocks_articulos_almacenes` contiene una unica fila por articulo y almacen. Persiste solamente `cantidad_fisica`, `cantidad_pedida` y `cantidad_reservada`, todas no negativas. Los valores derivados no se duplican en la base:
+`stocks_articulos_almacenes` contiene una unica fila por articulo y almacen. Persiste solamente `cantidad_fisica`, `cantidad_pedida` y `cantidad_reservada`. El fisico admite valores negativos; pedido y reservado se mantienen no negativos. Los valores derivados no se duplican en la base:
 
 ```text
 cantidad_disponible = cantidad_fisica - cantidad_reservada
@@ -27,7 +27,7 @@ La interfaz mantiene la regla de maestros: listado, alta separada y acciones vis
 
 La migracion `20260816_0023` incorpora `movimientos_stock` y `movimientos_stock_detalles`. La cabecera identifica el numero secuencial, tipo, estado, almacenes, usuario, fecha, documento de origen y eventual movimiento revertido. El detalle persiste el impacto firmado en unidad base y los saldos fisicos anterior y posterior.
 
-La escritura bloquea mediante `SELECT ... FOR UPDATE` la fila de `stocks_articulos_almacenes` correspondiente. La cabecera, sus detalles y todos los saldos se confirman en la misma transaccion PostgreSQL. La restriccion de stock fisico no negativo y la validacion del servicio impiden confirmar salidas sin existencia suficiente.
+La escritura bloquea mediante `SELECT ... FOR UPDATE` la fila de `stocks_articulos_almacenes` correspondiente. La cabecera, sus detalles y todos los saldos se confirman en la misma transaccion PostgreSQL. No se valida disponibilidad minima: una salida puede producir saldo fisico negativo y queda trazada con sus saldos anterior y posterior.
 
 Una transferencia genera dos detalles por articulo bajo la misma cabecera: cantidad negativa en origen y positiva en destino. Una reversion genera una nueva cabecera `REVERSION`, invierte cada detalle y referencia al movimiento original. La referencia es unica, por lo que un movimiento solo puede revertirse una vez.
 
@@ -57,6 +57,7 @@ La confirmacion bloquea las existencias involucradas con `SELECT ... FOR UPDATE`
 Endpoints:
 
 - `GET|POST /api/v1/articulos/stock/inventarios`;
+- `DELETE /api/v1/articulos/stock/inventarios/{id}` elimina cabecera y detalles solamente si el documento esta pendiente y no posee cantidades contadas;
 - `GET /api/v1/articulos/stock/inventarios/{id}`;
 - `PUT /api/v1/articulos/stock/inventarios/{id}/conteo`;
 - `POST /api/v1/articulos/stock/inventarios/{id}/finalizar`.

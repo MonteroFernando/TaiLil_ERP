@@ -24,7 +24,7 @@ El historial funciona como kardex: inicialmente no lista todos los movimientos. 
 
 El kardex permite filtrar adicionalmente por almacen y siempre se ordena desde la fecha mas reciente hacia la mas antigua. Cada movimiento guarda una unica fecha y hora: el momento exacto en que impacto el stock. Cada fila respeta el orden de lectura: **fecha y hora de impacto**, **operacion realizada**, **numero de transaccion**, usuario, motivo e impactos.
 
-Los ajustes admiten cantidades positivas para entradas y negativas para salidas. Una salida que dejaria stock fisico negativo se rechaza. Las transferencias descuentan el almacen de origen y suman el almacen de destino dentro de una unica operacion: si alguno de los impactos falla, ninguno queda aplicado.
+Los ajustes admiten cantidades positivas para entradas y negativas para salidas. El stock fisico puede quedar negativo: representa unidades vendidas o retiradas que todavia no fueron regularizadas y no bloquea la operacion. Las transferencias descuentan el almacen de origen y suman el almacen de destino dentro de una unica operacion.
 
 Las existencias muestran:
 
@@ -43,6 +43,8 @@ La consulta permite ver **Todos los almacenes** o elegir uno particular. El arti
 La pestaña **Inventarios** permite elegir un almacen y seleccionar los productos que participaran del conteo. Cada inventario queda numerado y guardado con estado `PENDIENTE` o `FINALIZADO`, usuario, fechas y una observacion general opcional.
 
 Los productos pueden agregarse individualmente con el buscador general o incorporarse en bloque seleccionando un clasificador, por ejemplo `RUBRO: FIAMBRES`. Los productos incorporados se muestran debajo en una planilla compacta con desplazamiento; desde alli se pueden quitar individualmente antes de crear el inventario.
+
+La opcion **Contar todos los articulos** incorpora de una vez todos los productos activos que controlan inventario. Un inventario pendiente puede eliminarse solamente mientras ninguna de sus lineas tenga una cantidad contada guardada.
 
 Desde su ficha se puede imprimir una planilla de conteo. La version impresa no muestra la existencia esperada para evitar condicionar al responsable; contiene codigo, descripcion y espacios para cantidad, observacion, responsable y firma.
 

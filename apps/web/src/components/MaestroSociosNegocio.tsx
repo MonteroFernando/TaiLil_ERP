@@ -4,7 +4,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Route } from "next";
 const apiUrl =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
+  process.env.NEXT_PUBLIC_API_URL ?? "/api/v1";
 const condiciones = [
   [1, "IVA RESPONSABLE INSCRIPTO"],
   [4, "IVA SUJETO EXENTO"],

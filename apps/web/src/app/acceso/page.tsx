@@ -3,7 +3,7 @@
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 
-const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
+const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api/v1";
 
 export default function Acceso() {
   const router = useRouter();

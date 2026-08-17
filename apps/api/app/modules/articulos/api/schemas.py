@@ -429,6 +429,29 @@ class PrecioBaseActualizar(BaseModel):
     precio_bruto: Decimal = Field(ge=0, decimal_places=6)
 
 
+class PrecioBaseMasivoActualizar(BaseModel):
+    articulo_id: UUID | None = None
+    clasificador_id: UUID | None = None
+    modo: Literal["FIJAR", "PORCENTAJE"]
+    valor: Decimal = Field(decimal_places=6)
+
+    @model_validator(mode="after")
+    def validar_actualizacion(self):
+        if (self.articulo_id is None) == (self.clasificador_id is None):
+            raise ValueError("Debe indicar un articulo o un clasificador")
+        if self.clasificador_id and self.modo == "FIJAR":
+            raise ValueError("Un grupo solo admite incremento o disminucion porcentual")
+        if self.modo == "FIJAR" and self.valor < 0:
+            raise ValueError("El precio fijo no puede ser negativo")
+        if self.modo == "PORCENTAJE" and self.valor < -100:
+            raise ValueError("La disminucion no puede superar el 100 por ciento")
+        return self
+
+
+class PrecioBaseMasivoResultado(BaseModel):
+    articulos_actualizados: int
+
+
 class PrecioListaArticuloActualizar(BaseModel):
     modo: Literal["PORCENTAJE", "MANUAL"]
     porcentaje_incremento: Decimal | None = Field(default=None, ge=-100, decimal_places=4)
@@ -477,18 +500,69 @@ class PosMedioPagoCrear(BaseModel):
 
 
 class PosVentaCrear(BaseModel):
-    cliente_id: UUID
+    cliente_id: UUID | None = None
     almacen_id: UUID
     lineas: list[PosVentaLineaCrear] = Field(min_length=1)
     pagos: list[PosMedioPagoCrear] = Field(default_factory=list)
+    borrador_id: UUID | None = None
+    apertura_caja_id: UUID | None = None
+
+
+class PuntoVentaCrear(BaseModel):
+    codigo: str = Field(min_length=1, max_length=4)
+    descripcion: str = Field(min_length=2, max_length=120)
+    almacen_id: UUID
+
+
+class PuntoVentaVista(PuntoVentaCrear):
+    id: UUID
+    letra: str
+    tipo_documento: str
+    ultimo_numero: int
+    activo: bool
+
+
+class CajaVentaCrear(BaseModel):
+    punto_venta_id: UUID
+    codigo: str = Field(min_length=1, max_length=20)
+    descripcion: str = Field(min_length=2, max_length=120)
+
+
+class CajaVentaVista(CajaVentaCrear):
+    id: UUID
+    activo: bool
+
+
+class AperturaCajaCrear(BaseModel):
+    caja_id: UUID
+    efectivo_inicial: Decimal = Field(ge=0, decimal_places=2)
+
+
+class AperturaCajaVista(BaseModel):
+    id: UUID
+    caja_id: UUID
+    caja_codigo: str
+    caja_descripcion: str
+    punto_venta_id: UUID
+    punto_venta_codigo: str
+    usuario_id: UUID
+    usuario_nombre: str
+    efectivo_inicial: Decimal
+    estado: str
+    fecha_apertura: datetime
+    fecha_cierre: datetime | None
 
 
 class PosVentaLineaVista(BaseModel):
+    articulo_id: UUID
     articulo_codigo: str
     articulo_descripcion: str
+    es_pesable: bool
     lista_nombre: str
     cantidad_base: Decimal
     precio_unitario_bruto: Decimal
+    precio_anterior_bruto: Decimal | None = None
+    descuento_porcentual: Decimal = Decimal("0")
     porcentaje_iva: Decimal
     subtotal_neto: Decimal
     importe_iva: Decimal
@@ -497,7 +571,12 @@ class PosVentaLineaVista(BaseModel):
 
 class PosVentaVista(BaseModel):
     id: UUID
-    numero: int
+    numero: int | None
+    numero_completo: str | None = None
+    letra: str = "T"
+    tipo_documento: str = "PRESUPUESTO"
+    punto_venta_codigo: str | None = None
+    caja_codigo: str | None = None
     cliente_id: UUID
     cliente_nombre: str
     almacen_id: UUID
@@ -518,3 +597,60 @@ class ArticuloDetalle(ArticuloResumen):
     codigos_barra: list[CodigoBarraVista]
     proveedores: list[ArticuloProveedorVista]
     stocks: list[StockArticuloVista]
+
+
+class CompraLineaCantidad(BaseModel):
+    articulo_id: UUID
+    cantidad_base: Decimal = Field(gt=0, decimal_places=6)
+
+
+class IngresoMercaderiaCrear(BaseModel):
+    proveedor_id: UUID
+    almacen_id: UUID
+    observacion: str | None = Field(default=None, max_length=500)
+    lineas: list[CompraLineaCantidad] = Field(min_length=1)
+
+
+class FacturaCompraLineaCrear(CompraLineaCantidad):
+    costo_bruto_unitario: Decimal = Field(ge=0, decimal_places=6)
+    politica_costo: Literal["REEMPLAZAR", "PROMEDIO", "NO_MODIFICAR"] | None = None
+
+
+class FacturaCompraCrear(BaseModel):
+    proveedor_id: UUID
+    almacen_id: UUID
+    numero_proveedor: str = Field(min_length=1, max_length=80)
+    ingreso_id: UUID | None = None
+    politica_costo: Literal["REEMPLAZAR", "PROMEDIO", "NO_MODIFICAR"]
+    lineas: list[FacturaCompraLineaCrear] = Field(min_length=1)
+
+
+class CompraLineaVista(BaseModel):
+    id: UUID
+    articulo_id: UUID
+    articulo_codigo: str
+    articulo_descripcion: str
+    cantidad_base: Decimal
+    costo_bruto_unitario: Decimal | None = None
+    costo_anterior: Decimal | None = None
+    costo_resultante: Decimal | None = None
+    politica_costo: str | None = None
+    advertencia: str | None = None
+    total_bruto: Decimal | None = None
+
+
+class DocumentoCompraVista(BaseModel):
+    id: UUID
+    numero: int
+    tipo: Literal["INGRESO", "FACTURA"]
+    proveedor_id: UUID
+    proveedor_nombre: str
+    almacen_id: UUID
+    almacen_codigo: str
+    estado: str
+    fecha_realizacion: datetime
+    numero_proveedor: str | None = None
+    ingreso_id: UUID | None = None
+    politica_costo: str | None = None
+    total_bruto: Decimal | None = None
+    lineas: list[CompraLineaVista]
