@@ -7,13 +7,15 @@ import BuscadorArticulo, {
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api/v1";
 type Lista = { id: string; nombre: string; activa: boolean };
-type Precio = { precio_base_bruto: string; precio_venta_bruto: string };
+type Precio = { precio_venta_bruto: string };
+type ReglaPrecio = { lista_precio_id: string; lista_nombre: string; cantidad_minima: string; activa: boolean };
+type PrecioAlternativo = { lista: string; cantidadMinima: number; precio: number };
 type Etiqueta = {
   id: string;
   codigo: string;
   descripcion: string;
   precio: number;
-  precioBase: number;
+  preciosAlternativos: PrecioAlternativo[];
   copias: number;
 };
 const formatos = {
@@ -44,16 +46,28 @@ export default function EtiquetasPrecios() {
   }, []);
   async function agregar(articulo: ArticuloBuscado | null) {
     if (!articulo || !general) return;
-    const r = await fetch(
-      `${apiUrl}/articulos/precios/listas/${general.id}/articulos?articulo_id=${articulo.id}`,
-      { credentials: "include" },
-    );
+    const [r, respuestaReglas] = await Promise.all([
+      fetch(`${apiUrl}/articulos/precios/listas/${general.id}/articulos?articulo_id=${articulo.id}`, { credentials: "include" }),
+      fetch(`${apiUrl}/articulos/precios/articulos/${articulo.id}/reglas`, { credentials: "include" }),
+    ]);
     const d = await r.json();
     if (!r.ok || !d.length) {
       setMensaje("No se pudo obtener el precio GENERAL del articulo");
       return;
     }
     const precio: Precio = d[0];
+    const reglas: ReglaPrecio[] = respuestaReglas.ok ? await respuestaReglas.json() : [];
+    const preciosAlternativos = (await Promise.all(
+      reglas
+        .filter((regla) => regla.activa && regla.lista_precio_id !== general.id)
+        .map(async (regla) => {
+          const respuestaPrecio = await fetch(`${apiUrl}/articulos/precios/listas/${regla.lista_precio_id}/articulos?articulo_id=${articulo.id}`, { credentials: "include" });
+          if (!respuestaPrecio.ok) return null;
+          const precios: Precio[] = await respuestaPrecio.json();
+          if (!precios.length) return null;
+          return { lista: regla.lista_nombre, cantidadMinima: Number(regla.cantidad_minima), precio: Number(precios[0].precio_venta_bruto) };
+        }),
+    )).filter((x): x is PrecioAlternativo => x !== null);
     setEtiquetas((actual) =>
       actual.some((x) => x.id === articulo.id)
         ? actual.map((x) =>
@@ -66,7 +80,7 @@ export default function EtiquetasPrecios() {
               codigo: articulo.codigo,
               descripcion: articulo.descripcion,
               precio: Number(precio.precio_venta_bruto),
-              precioBase: Number(precio.precio_base_bruto),
+              preciosAlternativos,
               copias: 1,
             },
           ],
@@ -177,7 +191,7 @@ export default function EtiquetasPrecios() {
                 <tr>
                   <th className="p-3">Articulo</th>
                   <th>Precio GENERAL</th>
-                  <th>Precio base</th>
+                  <th>Cambio por cantidad</th>
                   <th>Copias</th>
                   <th>Accion</th>
                 </tr>
@@ -191,8 +205,12 @@ export default function EtiquetasPrecios() {
                     </td>
                     <td className="font-semibold">${x.precio.toFixed(2)}</td>
                     <td>
-                      {x.precio !== x.precioBase
-                        ? `$${x.precioBase.toFixed(2)}`
+                      {x.preciosAlternativos.length
+                        ? x.preciosAlternativos.map((alternativo) => (
+                            <small className="block" key={`${alternativo.lista}-${alternativo.cantidadMinima}`}>
+                              Desde {alternativo.cantidadMinima}: {alternativo.lista} ${alternativo.precio.toFixed(2)}
+                            </small>
+                          ))
                         : "—"}
                     </td>
                     <td>
@@ -282,7 +300,6 @@ function EtiquetaVisual({
   ancho: number;
   alto: number;
 }) {
-  const cambio = etiqueta.precio !== etiqueta.precioBase;
   return (
     <article
       className="etiqueta-precio"
@@ -296,15 +313,14 @@ function EtiquetaVisual({
           maximumFractionDigits: 2,
         })}
       </strong>
-      {cambio && (
-        <p className="etiqueta-base">
-          BASE $
-          {etiqueta.precioBase.toLocaleString("es-AR", {
+      {etiqueta.preciosAlternativos.map((alternativo) => (
+        <p className="etiqueta-base" key={`${alternativo.lista}-${alternativo.cantidadMinima}`}>
+          DESDE {alternativo.cantidadMinima}: {alternativo.lista} ${alternativo.precio.toLocaleString("es-AR", {
             minimumFractionDigits: 2,
             maximumFractionDigits: 2,
           })}
         </p>
-      )}
+      ))}
       <small>{etiqueta.codigo}</small>
     </article>
   );

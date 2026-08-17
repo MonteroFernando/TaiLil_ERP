@@ -9,6 +9,6 @@ Formatos disponibles, expresados como alto por ancho:
 - 10 × 10 cm;
 - 5 × 10 cm.
 
-Cada etiqueta muestra la descripcion, el precio bruto de la lista GENERAL y el codigo interno. Cuando el precio GENERAL difiere del precio base COMPRAS, tambien muestra la referencia `BASE` con dicho importe. La vista previa utiliza el mismo diseño de la impresion.
+Cada etiqueta muestra la descripcion, el precio bruto de la lista GENERAL y el codigo interno. El costo o precio base COMPRAS es informacion interna y nunca se imprime ni se muestra al cliente. Si el articulo posee una regla activa de cambio de lista por cantidad, la etiqueta agrega la cantidad minima, el nombre de la lista comercial alternativa y su precio. La vista previa utiliza el mismo diseño de la impresion.
 
 La pantalla permite configurar el margen por cada lado de la hoja. Utiliza 0,5 cm como valor seguro inicial y recalcula en el momento cuantas etiquetas entran y cuantas hojas requiere la impresion. Cada pagina impresa es un bloque A4 independiente, por lo que el margen se repite correctamente en todas las hojas.
