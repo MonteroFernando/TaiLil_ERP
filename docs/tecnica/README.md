@@ -1,5 +1,7 @@
 # Documentacion tecnica
 
+- [Produccion en una red Windows](produccion-red-windows.md)
+
 - [Clasificadores, almacenes y stock](clasificadores-almacenes-stock.md)
 - [Listas de precios](listas-de-precios.md)
 - [Patron tecnico de busquedas en maestros](patron-busquedas-maestros.md)
