@@ -4,4 +4,4 @@ El panel principal concentra indicadores de distintos modulos sin mezclar sus re
 
 Los ultimos movimientos son una seccion comun y se filtraran por la actividad del usuario. Ventas del dia pertenece a Ventas; existencias y almacenes a Stock; gastos a Finanzas; cashflow, ingresos y egresos a Tesoreria.
 
-Las tarjetas se incorporaran progresivamente cuando cada modulo comience a generar datos reales.
+Las tarjetas toman datos reales de los modulos implementados y respetan sus permisos. No se generan importes ni cantidades ficticias cuando el usuario no tiene acceso o no existen movimientos.

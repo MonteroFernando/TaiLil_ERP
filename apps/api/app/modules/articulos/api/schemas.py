@@ -122,6 +122,12 @@ class CuentaCorrienteVentasConfigurar(BaseModel):
 
 class CuentaCorrienteVentasVista(CuentaCorrienteVentasConfigurar):
     socio_id: UUID
+    deuda_actual: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=2)
+    consumo_periodo: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=2)
+    credito_disponible: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=2)
+    saldo_favor: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=2)
+    disponible_total: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=2)
+    deuda_vencida: bool = False
 
 
 class SocioNegocioAltaCompleta(SocioNegocioCrear):
@@ -143,6 +149,11 @@ DomicilioTerceroVista = DomicilioSocioVista
 DomicilioTerceroActualizar = DomicilioSocioActualizar
 
 
+class StockInicialArticuloCrear(BaseModel):
+    almacen_id: UUID
+    cantidad: Decimal = Field(ge=0, max_digits=18, decimal_places=6)
+
+
 class ArticuloCrear(BaseModel):
     tipo_articulo: Literal["producto", "servicio"] = "producto"
     codigo_alternativo: str | None = Field(default=None, min_length=2, max_length=20)
@@ -156,9 +167,15 @@ class ArticuloCrear(BaseModel):
     habilitado_inventario: bool = True
     es_pesable: bool = False
     clasificador_ids: list[UUID] = Field(default_factory=list)
+    stock_inicial: list[StockInicialArticuloCrear] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validar_tipo_articulo(self):
+        almacenes = [linea.almacen_id for linea in self.stock_inicial]
+        if len(almacenes) != len(set(almacenes)):
+            raise ValueError("El stock inicial no puede repetir un almacen")
+        if self.stock_inicial and not self.habilitado_inventario:
+            raise ValueError("El stock inicial requiere un producto habilitado para inventario")
         if self.tipo_articulo == "producto" and self.codigo_alternativo:
             raise ValueError("Los productos reciben un codigo numerico automatico")
         if self.tipo_articulo == "servicio":
@@ -477,6 +494,15 @@ class PrecioArticuloListaVista(BaseModel):
     margen_porcentual: Decimal
 
 
+class PrecioVentaConsultaVista(BaseModel):
+    lista_id: UUID
+    lista_nombre: str
+    articulo_id: UUID
+    articulo_codigo: str
+    articulo_descripcion: str
+    precio_venta_bruto: Decimal
+
+
 class ReglaListaPrecioCrear(BaseModel):
     lista_precio_id: UUID
     cantidad_minima: Decimal = Field(gt=0, decimal_places=6)
@@ -494,7 +520,9 @@ class PosVentaLineaCrear(BaseModel):
 
 
 class PosMedioPagoCrear(BaseModel):
-    medio: Literal["EFECTIVO", "TARJETA", "TRANSFERENCIA", "OTRO"]
+    medio: Literal[
+        "EFECTIVO", "TARJETA", "TRANSFERENCIA", "OTRO", "CUENTA_CORRIENTE"
+    ]
     importe: Decimal = Field(gt=0, decimal_places=2)
     referencia: str | None = Field(default=None, max_length=120)
 
@@ -507,11 +535,24 @@ class PosVentaCrear(BaseModel):
     borrador_id: UUID | None = None
     apertura_caja_id: UUID | None = None
 
+    @model_validator(mode="after")
+    def validar_cuenta_corriente_unica(self) -> "PosVentaCrear":
+        cuentas_corrientes = sum(
+            pago.medio == "CUENTA_CORRIENTE" for pago in self.pagos
+        )
+        if cuentas_corrientes > 1:
+            raise ValueError("Solo se permite una imputacion a CUENTA CORRIENTE")
+        return self
+
 
 class PuntoVentaCrear(BaseModel):
     codigo: str = Field(min_length=1, max_length=4)
     descripcion: str = Field(min_length=2, max_length=120)
     almacen_id: UUID
+
+
+class DescripcionPosActualizar(BaseModel):
+    descripcion: str = Field(min_length=2, max_length=120)
 
 
 class PuntoVentaVista(PuntoVentaCrear):

@@ -128,7 +128,9 @@ async def renovar_sesion(
             status_code=401, detail="El token de renovacion no es valido"
         ) from error
 
-    sesion = await sesion_db.scalar(select(Sesion).where(Sesion.id == sesion_id))
+    sesion = await sesion_db.scalar(
+        select(Sesion).where(Sesion.id == sesion_id).with_for_update()
+    )
     if (
         sesion is None
         or sesion.usuario_id != usuario_id

@@ -1,5 +1,7 @@
 "use client";
 
+import { apiFetch } from "@/api";
+
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Route } from "next";
@@ -14,6 +16,13 @@ type Clasificador = {
   tipo: string;
   nombre: string;
   padre_id: string | null;
+  activo: boolean;
+};
+type Almacen = {
+  id: string;
+  codigo: string;
+  descripcion: string;
+  es_predeterminado: boolean;
   activo: boolean;
 };
 type Articulo = {
@@ -46,22 +55,25 @@ export default function MaestroArticulos() {
   const [unidades, setUnidades] = useState<Unidad[]>([]);
   const [ivas, setIvas] = useState<Iva[]>([]);
   const [clasificadores, setClasificadores] = useState<Clasificador[]>([]);
+  const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
   const [nuevo, setNuevo] = useState(false);
   const [buscar, setBuscar] = useState("");
   const [mensaje, setMensaje] = useState("");
   const cargar = useCallback(async () => {
-    const [a, u, i, c] = await Promise.all([
-      fetch(`${apiUrl}/articulos?incluir_inactivos=true&buscar=${encodeURIComponent(buscar)}`, {
+    const [a, u, i, c, al] = await Promise.all([
+      apiFetch(`${apiUrl}/articulos?incluir_inactivos=true&buscar=${encodeURIComponent(buscar)}`, {
         credentials: "include",
       }),
-      fetch(`${apiUrl}/articulos/unidades-medida`, { credentials: "include" }),
-      fetch(`${apiUrl}/articulos/alicuotas-iva`, { credentials: "include" }),
-      fetch(`${apiUrl}/articulos/clasificadores`, { credentials: "include" }),
+      apiFetch(`${apiUrl}/articulos/unidades-medida`, { credentials: "include" }),
+      apiFetch(`${apiUrl}/articulos/alicuotas-iva`, { credentials: "include" }),
+      apiFetch(`${apiUrl}/articulos/clasificadores`, { credentials: "include" }),
+      apiFetch(`${apiUrl}/articulos/almacenes`, { credentials: "include" }),
     ]);
     if (a.ok) setArticulos(await a.json());
     if (u.ok) setUnidades(await u.json());
     if (i.ok) setIvas(await i.json());
     if (c.ok) setClasificadores(await c.json());
+    if (al.ok) setAlmacenes(await al.json());
   }, [buscar]);
   useEffect(() => {
     const t = window.setTimeout(() => void cargar(), 200);
@@ -111,7 +123,7 @@ export default function MaestroArticulos() {
             />
           </div>
           <div className="mt-4 overflow-x-auto">
-            <table className="w-full text-left text-sm">
+            <table data-exportar-excel="true" className="w-full text-left text-sm">
               <thead className="text-xs uppercase text-[var(--texto-suave)]">
                 <tr>
                   <th className="p-3">Codigo</th>
@@ -156,11 +168,12 @@ export default function MaestroArticulos() {
             unidades={unidades}
             ivas={ivas}
             clasificadores={clasificadores.filter((c) => c.activo)}
+            almacenes={almacenes.filter((a) => a.activo)}
             cerrar={() => setNuevo(false)}
             creado={async (id) => {
               setNuevo(false);
               setMensaje(
-                "Articulo creado con stock cero en todos los almacenes activos",
+                "Articulo creado. El stock inicial quedo registrado en el historial.",
               );
               await cargar();
               router.push(`/articulos/${id}` as Route);
@@ -176,12 +189,14 @@ function ModalNuevo({
   unidades,
   ivas,
   clasificadores,
+  almacenes,
   cerrar,
   creado,
 }: {
   unidades: Unidad[];
   ivas: Iva[];
   clasificadores: Clasificador[];
+  almacenes: Almacen[];
   cerrar: () => void;
   creado: (id: string) => void;
 }) {
@@ -195,10 +210,14 @@ function ModalNuevo({
   const [compra, setCompra] = useState(true);
   const [inventario, setInventario] = useState(true);
   const [pesable, setPesable] = useState(false);
+  const [stockAlmacen, setStockAlmacen] = useState(
+    almacenes.find((x) => x.es_predeterminado)?.id ?? almacenes[0]?.id ?? "",
+  );
+  const [stockCantidad, setStockCantidad] = useState("");
   const [error, setError] = useState("");
   async function guardar(e: FormEvent) {
     e.preventDefault();
-    const r = await fetch(`${apiUrl}/articulos`, {
+    const r = await apiFetch(`${apiUrl}/articulos`, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
@@ -215,6 +234,10 @@ function ModalNuevo({
         habilitado_inventario: tipo === "producto" && inventario,
         es_pesable: tipo === "producto" && pesable,
         clasificador_ids: seleccion,
+        stock_inicial:
+          tipo === "producto" && inventario && stockAlmacen && stockCantidad !== ""
+            ? [{ almacen_id: stockAlmacen, cantidad: stockCantidad }]
+            : [],
       }),
     });
     if (!r.ok) {
@@ -229,6 +252,7 @@ function ModalNuevo({
     if (v === "servicio") {
       setInventario(false);
       setPesable(false);
+      setStockCantidad("");
     }
   }
   return (
@@ -350,6 +374,43 @@ function ModalNuevo({
               ))}
             </div>
           </fieldset>
+          {tipo === "producto" && inventario && (
+            <fieldset className="sm:col-span-2 rounded-xl border border-[var(--borde)] p-4">
+              <legend className="px-2 text-sm font-semibold">Stock inicial</legend>
+              <p className="mb-3 text-xs text-[var(--texto-suave)]">
+                Opcional. Si informa una cantidad, se generara un movimiento historico de STOCK INICIAL.
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="text-sm">
+                  Almacen
+                  <select
+                    value={stockAlmacen}
+                    onChange={(e) => setStockAlmacen(e.target.value)}
+                    className="mt-1 w-full rounded-xl border border-[var(--borde)] p-2"
+                  >
+                    <option value="">Seleccionar</option>
+                    {almacenes.map((x) => (
+                      <option key={x.id} value={x.id}>
+                        {x.codigo} - {x.descripcion}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="text-sm">
+                  Cantidad inicial
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.000001"
+                    value={stockCantidad}
+                    onChange={(e) => setStockCantidad(e.target.value)}
+                    placeholder="0"
+                    className="mt-1 w-full rounded-xl border border-[var(--borde)] p-2"
+                  />
+                </label>
+              </div>
+            </fieldset>
+          )}
           <fieldset className="sm:col-span-2">
             <legend className="mb-2 text-sm font-semibold">
               Habilitaciones

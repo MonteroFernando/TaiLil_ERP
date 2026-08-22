@@ -1,5 +1,7 @@
 "use client";
 
+import { apiFetch } from "@/api";
+
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 
@@ -105,15 +107,15 @@ export default function DetalleArticulo() {
   const cargar = useCallback(async () => {
     const [rArticulo, rUnidades, rProveedores, rIva, rClasificadores] =
       await Promise.all([
-        fetch(`${apiUrl}/articulos/${parametros.id}`, {
+        apiFetch(`${apiUrl}/articulos/${parametros.id}`, {
           credentials: "include",
         }),
-        fetch(`${apiUrl}/articulos/unidades-medida`, {
+        apiFetch(`${apiUrl}/articulos/unidades-medida`, {
           credentials: "include",
         }),
-        fetch(`${apiUrl}/articulos/proveedores`, { credentials: "include" }),
-        fetch(`${apiUrl}/articulos/alicuotas-iva`, { credentials: "include" }),
-        fetch(`${apiUrl}/articulos/clasificadores`, { credentials: "include" }),
+        apiFetch(`${apiUrl}/articulos/proveedores`, { credentials: "include" }),
+        apiFetch(`${apiUrl}/articulos/alicuotas-iva`, { credentials: "include" }),
+        apiFetch(`${apiUrl}/articulos/clasificadores`, { credentials: "include" }),
       ]);
     if (!rArticulo.ok) {
       setMensaje("No fue posible cargar el articulo.");
@@ -249,10 +251,10 @@ type ListaPrecio = { id:string; nombre:string; es_base:boolean; activa:boolean }
 type ReglaPrecio = { id:string; lista_precio_id:string; lista_nombre:string; cantidad_minima:string; activa:boolean };
 function ReglasPrecios({articuloId,informar}:{articuloId:string;informar:(m:string)=>void}){
   const[listas,setListas]=useState<ListaPrecio[]>([]),[reglas,setReglas]=useState<ReglaPrecio[]>([]),[lista,setLista]=useState(""),[cantidad,setCantidad]=useState("");
-  const cargar=useCallback(async()=>{const[rl,rr]=await Promise.all([fetch(`${apiUrl}/articulos/precios/listas`,{credentials:"include"}),fetch(`${apiUrl}/articulos/precios/articulos/${articuloId}/reglas`,{credentials:"include"})]);if(rl.ok)setListas(await rl.json());if(rr.ok)setReglas(await rr.json())},[articuloId]);
+  const cargar=useCallback(async()=>{const[rl,rr]=await Promise.all([apiFetch(`${apiUrl}/articulos/precios/listas`,{credentials:"include"}),apiFetch(`${apiUrl}/articulos/precios/articulos/${articuloId}/reglas`,{credentials:"include"})]);if(rl.ok)setListas(await rl.json());if(rr.ok)setReglas(await rr.json())},[articuloId]);
   useEffect(()=>{const t=window.setTimeout(()=>void cargar(),0);return()=>window.clearTimeout(t)},[cargar]);
-  async function agregar(e:FormEvent){e.preventDefault();const r=await fetch(`${apiUrl}/articulos/precios/articulos/${articuloId}/reglas`,{method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify({lista_precio_id:lista,cantidad_minima:cantidad})});const d=await r.json();if(!r.ok){informar(d.detail??"No se pudo crear la regla");return}setLista("");setCantidad("");informar("Regla de precio creada");await cargar()}
-  async function quitar(id:string){const r=await fetch(`${apiUrl}/articulos/precios/articulos/${articuloId}/reglas/${id}`,{method:"DELETE",credentials:"include"});if(r.ok){informar("Regla eliminada");await cargar()}}
+  async function agregar(e:FormEvent){e.preventDefault();const r=await apiFetch(`${apiUrl}/articulos/precios/articulos/${articuloId}/reglas`,{method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify({lista_precio_id:lista,cantidad_minima:cantidad})});const d=await r.json();if(!r.ok){informar(d.detail??"No se pudo crear la regla");return}setLista("");setCantidad("");informar("Regla de precio creada");await cargar()}
+  async function quitar(id:string){const r=await apiFetch(`${apiUrl}/articulos/precios/articulos/${articuloId}/reglas/${id}`,{method:"DELETE",credentials:"include"});if(r.ok){informar("Regla eliminada");await cargar()}}
   return <section className="mt-8 rounded-2xl border bg-white p-5"><h2 className="text-xl font-semibold">Cambio automatico de lista por cantidad</h2><p className="mt-1 text-sm text-[var(--texto-suave)]">Cuando la cantidad supera el umbral en unidad base, se utiliza la lista indicada. Si coinciden varias reglas, se aplica el umbral mas alto.</p><form onSubmit={agregar} className="mt-4 grid gap-3 sm:grid-cols-[1fr_220px_auto]"><label className="text-sm">Lista de destino<select className="mt-1 w-full rounded-xl border p-3" value={lista} onChange={e=>setLista(e.target.value)} required><option value="">Seleccionar</option>{listas.filter(x=>!x.es_base&&x.activa&&!reglas.some(r=>r.lista_precio_id===x.id)).map(x=><option key={x.id} value={x.id}>{x.nombre}</option>)}</select></label><label className="text-sm">Supera cantidad base<input className="mt-1 w-full rounded-xl border p-3" type="number" min="0.000001" step="0.000001" value={cantidad} onChange={e=>setCantidad(e.target.value)} required/></label><button className="self-end rounded-xl bg-[var(--marca)] px-4 py-3 font-semibold text-white">Agregar regla</button></form><div className="mt-4 overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr><th>Lista</th><th>Cantidad base</th><th></th></tr></thead><tbody>{reglas.map(x=><tr key={x.id} className="border-t"><td className="py-3 font-semibold">{x.lista_nombre}</td><td>Mayor a {x.cantidad_minima}</td><td className="text-right"><button onClick={()=>void quitar(x.id)} className="rounded-lg border border-red-200 px-3 py-2 text-red-700">Quitar</button></td></tr>)}</tbody></table></div></section>
 }
 
@@ -308,7 +310,7 @@ function EditarArticulo({
   });
   async function guardar(e: FormEvent) {
     e.preventDefault();
-    const r = await fetch(`${apiUrl}/articulos/${articulo.id}`, {
+    const r = await apiFetch(`${apiUrl}/articulos/${articulo.id}`, {
       method: "PUT",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
@@ -547,7 +549,7 @@ function SeccionPresentaciones({
     const url = editando
       ? `${apiUrl}/articulos/${articulo.id}/unidades/${editando}`
       : `${apiUrl}/articulos/${articulo.id}/unidades`;
-    const respuesta = await fetch(url, {
+    const respuesta = await apiFetch(url, {
       method: editando ? "PUT" : "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
@@ -575,7 +577,7 @@ function SeccionPresentaciones({
       !window.confirm(`¿Eliminar la presentacion ${item.nombre_presentacion}?`)
     )
       return;
-    const respuesta = await fetch(
+    const respuesta = await apiFetch(
       `${apiUrl}/articulos/${articulo.id}/unidades/${item.id}`,
       { method: "DELETE", credentials: "include" },
     );
@@ -594,7 +596,7 @@ function SeccionPresentaciones({
     item: Presentacion,
     marcada: boolean,
   ) {
-    const respuesta = await fetch(
+    const respuesta = await apiFetch(
       `${apiUrl}/articulos/${articulo.id}/unidades/${item.id}`,
       {
         method: "PUT",
@@ -768,7 +770,7 @@ function SeccionCodigos({
     const url = editando
       ? `${apiUrl}/articulos/${articulo.id}/codigos-barra/${editando}`
       : `${apiUrl}/articulos/${articulo.id}/codigos-barra`;
-    const respuesta = await fetch(url, {
+    const respuesta = await apiFetch(url, {
       method: editando ? "PUT" : "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
@@ -797,7 +799,7 @@ function SeccionCodigos({
 
   async function eliminar(item: CodigoBarra) {
     if (!window.confirm(`¿Eliminar el codigo ${item.codigo}?`)) return;
-    const respuesta = await fetch(
+    const respuesta = await apiFetch(
       `${apiUrl}/articulos/${articulo.id}/codigos-barra/${item.id}`,
       { method: "DELETE", credentials: "include" },
     );
@@ -943,7 +945,7 @@ function SeccionProveedores({
     const url = editando
       ? `${apiUrl}/articulos/${articulo.id}/proveedores/${editando}`
       : `${apiUrl}/articulos/${articulo.id}/proveedores`;
-    const respuesta = await fetch(url, {
+    const respuesta = await apiFetch(url, {
       method: editando ? "PUT" : "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
@@ -972,7 +974,7 @@ function SeccionProveedores({
 
   async function eliminar(item: RelacionProveedor) {
     if (!window.confirm(`¿Quitar a ${item.razon_social} del articulo?`)) return;
-    const respuesta = await fetch(
+    const respuesta = await apiFetch(
       `${apiUrl}/articulos/${articulo.id}/proveedores/${item.id}`,
       { method: "DELETE", credentials: "include" },
     );
@@ -987,7 +989,7 @@ function SeccionProveedores({
 
   async function crearProveedor(evento: FormEvent) {
     evento.preventDefault();
-    const respuesta = await fetch(`${apiUrl}/articulos/proveedores`, {
+    const respuesta = await apiFetch(`${apiUrl}/articulos/proveedores`, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },

@@ -1,0 +1,141 @@
+TAILIL ERP - APLICAR ALEMBIC Y ARRANCAR LOS SERVICIOS EN WINDOWS
+================================================================
+
+Ruta actual del proyecto:
+D:\Documentos\Proyectos\TaiLil_ERP\TaiLil_ERP
+
+IMPORTANTE
+----------
+- Ejecutar PowerShell en la PC que funciona como servidor.
+- No es necesario activar manualmente el entorno virtual: los comandos usan su ruta exacta.
+- La migracion Alembic conserva los datos existentes.
+- El frontend debe compilarse antes de usar Iniciar-TaiLilERP.ps1.
+
+
+1) ACTUALIZACION COMPLETA (COPIAR Y PEGAR TODO ESTE BLOQUE)
+----------------------------------------------------------
+
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+$RaizTaiLil = "D:\Documentos\Proyectos\TaiLil_ERP\TaiLil_ERP"
+Set-Location -LiteralPath $RaizTaiLil
+
+& ".\deploy\windows\Detener-TaiLilERP.ps1" -RaizProyecto $RaizTaiLil
+
+& ".\.venv\Scripts\python.exe" -m alembic -c ".\apps\api\alembic.ini" current
+& ".\.venv\Scripts\python.exe" -m alembic -c ".\apps\api\alembic.ini" heads
+& ".\.venv\Scripts\python.exe" -m alembic -c ".\apps\api\alembic.ini" upgrade head
+& ".\.venv\Scripts\python.exe" -m alembic -c ".\apps\api\alembic.ini" current
+
+Push-Location ".\apps\web"
+npm.cmd ci
+npm.cmd run build
+Pop-Location
+
+& ".\deploy\windows\Iniciar-TaiLilERP.ps1" -RaizProyecto $RaizTaiLil
+
+Invoke-WebRequest "http://127.0.0.1:8000/api/v1/sistema/estado" -UseBasicParsing
+Invoke-WebRequest "http://127.0.0.1:3000/api/v1/sistema/estado" -UseBasicParsing
+Get-NetTCPConnection -State Listen -LocalPort 3000,8000
+
+
+2) RESULTADO ESPERADO DE ALEMBIC
+--------------------------------
+
+El ultimo comando "current" debe mostrar:
+
+20260821_0041 (head)
+
+Si muestra ese valor, la base de datos esta actualizada.
+
+
+3) DIRECCIONES PARA ABRIR EL SISTEMA
+------------------------------------
+
+Desde la PC servidor:
+http://localhost:3000
+
+Para conocer la IPv4 del servidor:
+
+Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike "127.*" -and $_.IPAddress -notlike "169.254.*" } | Select-Object InterfaceAlias,IPAddress
+
+Desde otra PC de la red, reemplazar IP-DEL-SERVIDOR:
+http://IP-DEL-SERVIDOR:3000
+
+
+4) SI POSTGRESQL SE EJECUTA CON DOCKER
+--------------------------------------
+
+Ejecutar esto ANTES de Alembic solamente si este proyecto usa el PostgreSQL de compose.yaml:
+
+Set-Location -LiteralPath "D:\Documentos\Proyectos\TaiLil_ERP\TaiLil_ERP"
+docker compose up -d postgres
+docker compose ps
+
+No ejecutar este bloque si PostgreSQL se administra como un servicio externo de Windows u otro servidor.
+
+
+5) INSTALAR DEPENDENCIAS CUANDO CAMBIARON
+-----------------------------------------
+
+Normalmente no hace falta para esta actualizacion. Si se modificaron requirements.txt o package-lock.json, ejecutar antes de compilar:
+
+Set-Location -LiteralPath "D:\Documentos\Proyectos\TaiLil_ERP\TaiLil_ERP"
+& ".\.venv\Scripts\python.exe" -m pip install -r ".\apps\api\requirements.txt"
+Push-Location ".\apps\web"
+npm.cmd ci
+Pop-Location
+
+
+6) VER LOS LOGS SI EL ARRANQUE FALLA
+------------------------------------
+
+Set-Location -LiteralPath "D:\Documentos\Proyectos\TaiLil_ERP\TaiLil_ERP"
+Get-Content ".\logs\api-error.log" -Tail 100
+Get-Content ".\logs\api.log" -Tail 100
+Get-Content ".\logs\web-error.log" -Tail 100
+Get-Content ".\logs\web.log" -Tail 100
+
+
+7) ARRANCAR NUEVAMENTE SIN ACTUALIZAR
+-------------------------------------
+
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+$RaizTaiLil = "D:\Documentos\Proyectos\TaiLil_ERP\TaiLil_ERP"
+Set-Location -LiteralPath $RaizTaiLil
+& ".\deploy\windows\Iniciar-TaiLilERP.ps1" -RaizProyecto $RaizTaiLil
+
+
+8) DETENER LOS SERVICIOS
+------------------------
+
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+$RaizTaiLil = "D:\Documentos\Proyectos\TaiLil_ERP\TaiLil_ERP"
+Set-Location -LiteralPath $RaizTaiLil
+& ".\deploy\windows\Detener-TaiLilERP.ps1" -RaizProyecto $RaizTaiLil
+
+
+9) RECOMPILAR SOLAMENTE EL FRONTEND
+-----------------------------------
+
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+$RaizTaiLil = "D:\Documentos\Proyectos\TaiLil_ERP\TaiLil_ERP"
+Set-Location -LiteralPath $RaizTaiLil
+& ".\deploy\windows\Detener-TaiLilERP.ps1" -RaizProyecto $RaizTaiLil
+Push-Location ".\apps\web"
+npm.cmd run build
+Pop-Location
+& ".\deploy\windows\Iniciar-TaiLilERP.ps1" -RaizProyecto $RaizTaiLil
+
+
+10) ABRIR UN PUESTO CON IMPRESION DIRECTA
+-----------------------------------------
+
+En la PC servidor:
+
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+Set-Location -LiteralPath "D:\Documentos\Proyectos\TaiLil_ERP\TaiLil_ERP"
+& ".\deploy\windows\Abrir-TaiLilERP-POS.ps1" -Url "http://localhost:3000"
+
+En una PC cliente cambiar localhost por la IP o nombre del servidor. Antes de
+usar el modo directo, configurar en el driver de la impresora "cortar al
+finalizar trabajo". Ver el archivo IMPRESION_DIRECTA_WINDOWS.txt.

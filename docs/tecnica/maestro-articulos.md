@@ -75,3 +75,5 @@ DELETE /api/v1/articulos/{id}/proveedores/{relacion_id}
 ```
 
 Las consultas requieren `datos_maestros.ver`; las modificaciones requieren `datos_maestros.gestionar`. Los administradores siempre superan esta comprobacion.
+
+`POST /api/v1/articulos` admite `stock_inicial: [{almacen_id, cantidad}]`. El esquema rechaza almacenes repetidos y stock para servicios o articulos sin inventario. Si hay cantidades positivas, el alta crea y confirma un movimiento `STOCK_INICIAL` con sus detalles y existencias dentro de la misma transaccion.

@@ -1,6 +1,9 @@
 "use client";
 
+import { apiFetch } from "@/api";
+
 import { FormEvent, useEffect, useState } from "react";
+import BuscadorArticulo, { ArticuloBuscado } from "@/components/BuscadorArticulo";
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api/v1";
 type Socio = { id: string; razon_social: string };
 type Almacen = {
@@ -9,7 +12,6 @@ type Almacen = {
   descripcion: string;
   activo: boolean;
 };
-type Articulo = { id: string; codigo: string; descripcion: string };
 type Linea = {
   articulo_id: string;
   codigo: string;
@@ -42,13 +44,12 @@ export default function Compras() {
   const [seccion, setSeccion] = useState<"INGRESO" | "FACTURA">("INGRESO"),
     [socios, setSocios] = useState<Socio[]>([]),
     [almacenes, setAlmacenes] = useState<Almacen[]>([]),
-    [articulos, setArticulos] = useState<Articulo[]>([]),
     [ingresos, setIngresos] = useState<Documento[]>([]),
     [facturas, setFacturas] = useState<Documento[]>([]);
   const [proveedor, setProveedor] = useState(""),
     [almacen, setAlmacen] = useState(""),
     [lineas, setLineas] = useState<Linea[]>([]),
-    [articulo, setArticulo] = useState(""),
+    [articulo, setArticulo] = useState<ArticuloBuscado | null>(null),
     [cantidad, setCantidad] = useState("1"),
     [ingreso, setIngreso] = useState(""),
     [numeroProveedor, setNumeroProveedor] = useState(""),
@@ -57,14 +58,14 @@ export default function Compras() {
     [nuevo, setNuevo] = useState(false);
   async function cargar() {
     const [rs, ra, ri, rf] = await Promise.all([
-      fetch(`${apiUrl}/articulos/socios?rol=proveedor`, {
+      apiFetch(`${apiUrl}/articulos/socios?rol=proveedor`, {
         credentials: "include",
       }),
-      fetch(`${apiUrl}/articulos/almacenes`, { credentials: "include" }),
-      fetch(`${apiUrl}/articulos/compras/ingresos?pendientes=true`, {
+      apiFetch(`${apiUrl}/articulos/almacenes`, { credentials: "include" }),
+      apiFetch(`${apiUrl}/articulos/compras/ingresos?pendientes=true`, {
         credentials: "include",
       }),
-      fetch(`${apiUrl}/articulos/compras/facturas`, { credentials: "include" }),
+      apiFetch(`${apiUrl}/articulos/compras/facturas`, { credentials: "include" }),
     ]);
     if (rs.ok) setSocios(await rs.json());
     if (ra.ok) setAlmacenes(await ra.json());
@@ -72,21 +73,11 @@ export default function Compras() {
     if (rf.ok) setFacturas(await rf.json());
   }
   useEffect(() => {
-    void cargar();
+    const temporizador = window.setTimeout(() => void cargar(), 0);
+    return () => window.clearTimeout(temporizador);
   }, []);
-  useEffect(() => {
-    if (!proveedor) {
-      setArticulos([]);
-      return;
-    }
-    void fetch(`${apiUrl}/articulos?proveedor_id=${proveedor}`, {
-      credentials: "include",
-    }).then(async (r) => {
-      if (r.ok) setArticulos(await r.json());
-    });
-  }, [proveedor]);
   function agregar() {
-    const a = articulos.find((x) => x.id === articulo);
+    const a = articulo;
     if (!a || Number(cantidad) <= 0) return;
     setLineas((actual) =>
       actual.some((x) => x.articulo_id === a.id)
@@ -110,7 +101,7 @@ export default function Compras() {
             },
           ],
     );
-    setArticulo("");
+    setArticulo(null);
     setCantidad("1");
   }
   function elegirIngreso(id: string) {
@@ -158,7 +149,7 @@ export default function Compras() {
           })),
         };
     try {
-      const r = await fetch(
+      const r = await apiFetch(
         `${apiUrl}/articulos/compras/${esFactura ? "facturas" : "ingresos"}`,
         {
           method: "POST",
@@ -203,6 +194,7 @@ export default function Compras() {
           </p>
         </div>
         <div className="flex gap-2">
+          <a href="/notas-credito?tipo=PROVEEDOR" className="rounded-xl border px-4 py-2 text-sm font-semibold text-[var(--marca)]">Notas de credito</a>
           <button
             onClick={() => {
               setSeccion("INGRESO");
@@ -243,6 +235,7 @@ export default function Compras() {
               value={proveedor}
               onChange={(e) => {
                 setProveedor(e.target.value);
+                setArticulo(null);
                 setLineas([]);
                 setIngreso("");
               }}
@@ -319,20 +312,24 @@ export default function Compras() {
         </div>
         {!ingreso && (
           <div className="mt-5 grid gap-3 md:grid-cols-[1fr_160px_auto]">
-            <label>
+            <label key={proveedor}>
               Articulo del proveedor
-              <select
-                value={articulo}
-                onChange={(e) => setArticulo(e.target.value)}
-                className="mt-1 w-full rounded-xl border p-3"
-              >
-                <option value="">Seleccionar producto</option>
-                {articulos.map((x) => (
-                  <option key={x.id} value={x.id}>
-                    {x.codigo} - {x.descripcion}
-                  </option>
-                ))}
-              </select>
+              <div className="mt-1">
+                <BuscadorArticulo
+                  seleccionar={setArticulo}
+                  proveedorId={proveedor}
+                  deshabilitado={!proveedor}
+                  limpiarAlSeleccionar
+                />
+              </div>
+              <small className="text-[var(--texto-suave)]">
+                Codigo interno, descripcion por palabras, codigo de proveedor o codigo de barra.
+              </small>
+              {articulo && (
+                <span className="mt-1 block rounded-lg bg-[var(--marca-clara)] px-3 py-2 text-sm font-semibold text-[var(--marca)]">
+                  Seleccionado: {articulo.codigo} - {articulo.descripcion}
+                </span>
+              )}
             </label>
             <label>
               Cantidad
@@ -462,7 +459,7 @@ export default function Compras() {
       <section className="mt-5 rounded-2xl border bg-white p-5">
         <h2 className="text-xl font-semibold">Ultimos documentos</h2>
         <div className="mt-3 overflow-x-auto">
-          <table className="w-full text-left text-sm">
+          <table data-exportar-excel="true" className="w-full text-left text-sm">
             <thead>
               <tr>
                 <th>Tipo</th>

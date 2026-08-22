@@ -1,6 +1,8 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { apiFetch } from "@/api";
+
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api/v1";
@@ -15,12 +17,25 @@ export default function Acceso() {
   const [mensaje, setMensaje] = useState("");
   const [enviando, setEnviando] = useState(false);
 
+  useEffect(() => {
+    async function verificarSesion() {
+      try {
+        const respuesta = await apiFetch(`${apiUrl}/autenticacion/yo`);
+        if (respuesta.ok) router.replace("/panel");
+      } catch {
+        // El formulario sigue disponible si la API no responde.
+      }
+    }
+
+    void verificarSesion();
+  }, [router]);
+
   async function iniciarSesion(evento: FormEvent<HTMLFormElement>) {
     evento.preventDefault();
     setEnviando(true);
     setMensaje("");
     try {
-      const respuesta = await fetch(`${apiUrl}/autenticacion/iniciar-sesion`, {
+      const respuesta = await apiFetch(`${apiUrl}/autenticacion/iniciar-sesion`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -50,7 +65,7 @@ export default function Acceso() {
     setEnviando(true);
     setMensaje("");
     try {
-      const respuesta = await fetch(`${apiUrl}/autenticacion/cambiar-contrasena`, {
+      const respuesta = await apiFetch(`${apiUrl}/autenticacion/cambiar-contrasena`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },

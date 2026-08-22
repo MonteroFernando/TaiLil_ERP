@@ -1,27 +1,27 @@
 # Permisos y perfiles de acceso
 
-## Conceptos
+Un **permiso** habilita una accion concreta. Un **perfil de acceso** agrupa permisos reutilizables para una funcion operativa. Un usuario puede tener varios perfiles y permisos adicionales directos; el acceso efectivo es la union de todos ellos.
 
-- **Permiso:** habilita una accion concreta dentro de un modulo, por ejemplo `inventario.ver`.
-- **Perfil de acceso:** conjunto reutilizable de permisos. Representa una funcion operativa, como Ventas o Responsable de deposito.
-- **Administrador:** usuario con acceso completo que puede crear usuarios y administrar sus accesos.
-- **Permiso adicional:** excepcion asignada directamente a un usuario, ademas de sus perfiles.
+Solo un administrador puede crear usuarios, crear o modificar perfiles y asignar accesos. El catalogo lo define el sistema: desde la pantalla se seleccionan codigos existentes, no se inventan permisos.
 
-Utilizamos “perfil de acceso” y no “puesto” porque un puesto pertenece a la estructura laboral, mientras que un perfil describe exclusivamente el acceso al sistema. Un usuario puede tener varios perfiles.
+## Catalogo operativo
 
-## Reglas
+| Modulo | Consulta | Gestion |
+|---|---|---|
+| Accesos | `configuracion.accesos.ver` | `configuracion.accesos.gestionar` |
+| Datos maestros | `datos_maestros.ver` | `datos_maestros.gestionar` |
+| Inventario | `inventario.ver` | `inventario.gestionar` |
+| Ventas y POS | `ventas.ver` | `ventas.gestionar` |
+| Compras | `compras.ver` | `compras.gestionar` |
+| Tesoreria | `tesoreria.ver` | `tesoreria.gestionar` |
+| Informes | `informes.ver` | — |
 
-- Solo los administradores pueden crear usuarios.
-- Solo los administradores pueden crear perfiles o asignar permisos.
-- Los permisos se organizan por modulo y accion para facilitar su revision.
-- El sistema define el catalogo de permisos; los administradores seleccionan permisos existentes, pero no inventan codigos nuevos.
-- Todo usuario nuevo recibe una contraseña temporal y debe reemplazarla en el primer acceso.
-- Un administrador no puede quitarse a si mismo su acceso administrativo ni desactivarse.
+La configuracion crediticia de clientes usa ademas `ventas.cuenta_corriente.configurar`.
 
-## Catalogo inicial
+`informes.ver` es independiente: debe otorgarse a quienes puedan consultar flujo de dinero, costos y margenes. Al instalar la migracion se concede inicialmente a perfiles que ya tenian `tesoreria.ver`, pero el administrador puede separarlos despues.
 
-Los modulos iniciales son Configuracion, Datos maestros, Inventario, Ventas y Compras. Cada modulo comienza con acciones `ver` y `gestionar`. Se agregaran acciones mas especificas —por ejemplo aprobar o anular— cuando implementemos el proceso correspondiente.
+## Administracion
 
-## Configuracion
+En **Panel principal → Configurar accesos** se crean perfiles, se marcan permisos por modulo y se crean usuarios con perfiles preasignados. Todo usuario nuevo recibe una contraseña temporal y debe cambiarla. Un administrador no puede desactivarse ni quitarse a si mismo el acceso administrativo.
 
-La pantalla administrativa se encuentra en **Panel principal → Configurar accesos**. Desde ella se pueden crear perfiles, seleccionar permisos por modulo y crear usuarios con perfiles preasignados.
+Ocultar un menu o boton mejora la interfaz, pero la API vuelve a controlar el permiso en cada solicitud.

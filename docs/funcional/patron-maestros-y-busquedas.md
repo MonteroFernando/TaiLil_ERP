@@ -24,10 +24,10 @@ Las pestañas que necesitan un registro previamente guardado permanecen deshabil
 
 La busqueda se ejecuta automaticamente mientras se escribe, sin boton de confirmacion. Las palabras pueden escribirse en cualquier orden: cada palabra debe aparecer en alguno de los campos habilitados, aunque no sea en el mismo campo.
 
-Cuando una operacion requiere seleccionar un articulo, el buscador muestra un desplegable incremental. Busca simultaneamente por codigo interno, descripcion, todos sus codigos de barra y los codigos asignados por cualquiera de sus proveedores. Se puede recorrer con las flechas del teclado, confirmar con `Enter` y cerrar con `Escape`. Este componente es comun para Stock y los futuros documentos de compras y ventas.
+Cuando una operacion requiere seleccionar un articulo, el buscador muestra un desplegable incremental. Busca simultaneamente por codigo interno, descripcion, todos sus codigos de barra y los codigos asignados por cualquiera de sus proveedores. Se puede recorrer con las flechas del teclado, confirmar con `Enter` y cerrar con `Escape`. Este componente es comun para Stock, Compras, POS y las demas selecciones operativas de articulos.
 
 - Clientes y proveedores: codigo o numero interno, razon social, nombre de fantasia, DNI, CUIT u otro documento.
-- Articulos: codigo interno, descripcion corta, descripcion ampliada o cualquier codigo de barras.
+- Articulos: codigo interno, descripcion corta o ampliada, cualquier codigo de barras y cualquier codigo de proveedor.
 
 Los futuros maestros deben seguir este mismo comportamiento e incorporar todos sus identificadores operativos relevantes.
 # Acciones uniformes en los maestros

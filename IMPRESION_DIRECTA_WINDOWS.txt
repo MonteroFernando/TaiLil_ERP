@@ -1,0 +1,66 @@
+TAILIL ERP - IMPRESION DIRECTA DE TICKETS Y ETIQUETAS
+=====================================================
+
+1. CONFIGURAR LAS IMPRESORAS EN WINDOWS
+----------------------------------------
+
+- Instalar el driver oficial de la impresora termica o de etiquetas.
+- Elegirla como impresora predeterminada del puesto.
+- En Preferencias de impresion configurar el ancho correcto:
+  ticket termico: 80 mm; etiquetas: el tamaño utilizado.
+- Para tickets con guillotina habilitar una opcion equivalente a:
+  "Cortar al finalizar el trabajo", "Cut after job" o "Full cut".
+- Para rollos de etiquetas con cortador, elegir "Cortar al finalizar pagina"
+  o "Cut after label/page" si el modelo y su driver ofrecen esa opcion.
+
+La orden concreta de corte depende del protocolo y modelo de impresora
+(ESC/POS, ZPL, TSPL u otro). El navegador finaliza el trabajo y el driver
+oficial envia la orden de corte configurada.
+
+IMPORTANTE: no todas las impresoras de etiquetas tienen cortador. En esos
+equipos la impresion directa funciona, pero no se puede ordenar un corte
+fisico que el hardware no admite.
+
+
+2. ABRIR EL PUESTO CON IMPRESION DIRECTA
+----------------------------------------
+
+En la PC servidor:
+
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+Set-Location -LiteralPath "D:\Documentos\Proyectos\TaiLil_ERP\TaiLil_ERP"
+& ".\deploy\windows\Abrir-TaiLilERP-POS.ps1" -Url "http://localhost:3000"
+
+Desde otra PC de la red, indicar la IP o nombre del servidor:
+
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+& "C:\RUTA\TaiLil_ERP\deploy\windows\Abrir-TaiLilERP-POS.ps1" -Url "http://IP-DEL-SERVIDOR:3000"
+
+El parametro --kiosk-printing de Edge permite que window.print() utilice la
+impresora predeterminada sin mostrar el dialogo de impresion.
+
+
+3. ELEGIR EL MODO DENTRO DEL SISTEMA
+------------------------------------
+
+En Punto de venta o Etiquetas elegir:
+
+- VISTA PREVIA: conserva el funcionamiento anterior y permite confirmar la
+  impresora antes de imprimir.
+- IMPRESION DIRECTA: al confirmar el cobro abre, imprime y cierra el ticket
+  automaticamente. En Etiquetas, el boton imprime sin dialogo cuando el
+  sistema fue abierto mediante Abrir-TaiLilERP-POS.ps1.
+
+La seleccion queda guardada en ese navegador y se comparte entre el POS y
+la pantalla de Etiquetas.
+
+
+4. PRUEBA RECOMENDADA
+---------------------
+
+- Hacer primero una venta de prueba con VISTA PREVIA.
+- Confirmar ancho, margenes y que no se corte contenido.
+- Confirmar en el driver que el ticket corta al terminar el trabajo y, si
+  corresponde, que el rollo de etiquetas corta al terminar pagina.
+- Abrir con Abrir-TaiLilERP-POS.ps1 y activar IMPRESION DIRECTA.
+- Hacer una segunda venta de prueba y luego imprimir una hoja de etiquetas.

@@ -1,5 +1,7 @@
 "use client";
 
+import { apiFetch } from "@/api";
+
 import { KeyboardEvent, RefObject, useEffect, useRef, useState } from "react";
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api/v1";
@@ -19,6 +21,9 @@ export default function BuscadorArticulo({
   requerido = false,
   referenciaEntrada,
   limpiarAlSeleccionar = false,
+  proveedorId,
+  deshabilitado = false,
+  seleccionarDirectoConEnter = false,
 }: {
   seleccionar: (articulo: ArticuloBuscado | null) => void;
   seleccionarConCantidad?: (articulo: ArticuloBuscado, cantidad: number) => void;
@@ -27,32 +32,45 @@ export default function BuscadorArticulo({
   requerido?: boolean;
   referenciaEntrada?: RefObject<HTMLInputElement | null>;
   limpiarAlSeleccionar?: boolean;
+  proveedorId?: string;
+  deshabilitado?: boolean;
+  seleccionarDirectoConEnter?: boolean;
 }) {
   const [texto, setTexto] = useState("");
   const [resultados, setResultados] = useState<ArticuloBuscado[]>([]);
   const [abierto, setAbierto] = useState(false);
   const [indice, setIndice] = useState(-1);
   const contenedor = useRef<HTMLDivElement>(null);
+  const omitirBusquedaSeleccion = useRef(false);
+  const versionBusqueda = useRef(0);
 
   useEffect(() => {
+    if (omitirBusquedaSeleccion.current) {
+      omitirBusquedaSeleccion.current = false;
+      return;
+    }
     const coincidenciaMultiplicador = texto.trim().match(/^(\d+(?:[.,]\d+)?)\s*\*\s*(.+)$/);
     const textoBusqueda = coincidenciaMultiplicador?.[2] ?? texto;
     if (!textoBusqueda.trim()) {
       return;
     }
+    const version = ++versionBusqueda.current;
     const temporizador = window.setTimeout(async () => {
-      const r = await fetch(`${apiUrl}/articulos?buscar=${encodeURIComponent(textoBusqueda)}`, {
+      const parametros = new URLSearchParams({ buscar: textoBusqueda });
+      if (proveedorId) parametros.set("proveedor_id", proveedorId);
+      const r = await apiFetch(`${apiUrl}/articulos?${parametros}`, {
         credentials: "include",
       });
       if (!r.ok) return;
       const datos: ArticuloBuscado[] = await r.json();
+      if (version !== versionBusqueda.current) return;
       const filtrados = soloInventario ? datos.filter((x) => x.habilitado_inventario) : datos;
       setResultados(filtrados.slice(0, 12));
       setAbierto(true);
       setIndice(filtrados.length ? 0 : -1);
     }, 180);
     return () => window.clearTimeout(temporizador);
-  }, [texto, soloInventario]);
+  }, [texto, soloInventario, proveedorId]);
 
   useEffect(() => {
     function cerrar(e: MouseEvent) {
@@ -67,7 +85,11 @@ export default function BuscadorArticulo({
     const cantidad = coincidenciaMultiplicador
       ? Number(coincidenciaMultiplicador[1].replace(",", "."))
       : 1;
+    versionBusqueda.current += 1;
+    omitirBusquedaSeleccion.current = true;
     setTexto(limpiarAlSeleccionar ? "" : `${articulo.codigo} - ${articulo.descripcion}`);
+    setResultados([]);
+    setIndice(-1);
     setAbierto(false);
     if (seleccionarConCantidad) seleccionarConCantidad(articulo, cantidad);
     else seleccionar(articulo);
@@ -76,6 +98,35 @@ export default function BuscadorArticulo({
   }
 
   function manejarTeclado(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter" && abierto && resultados.length && indice >= 0) {
+      e.preventDefault();
+      elegir(resultados[indice]);
+      return;
+    }
+    if (e.key === "Enter" && seleccionarDirectoConEnter) {
+      const coincidenciaMultiplicador = texto.trim().match(/^(\d+(?:[.,]\d+)?)\s*\*\s*(.+)$/);
+      const textoBusqueda = (coincidenciaMultiplicador?.[2] ?? texto).trim();
+      if (!textoBusqueda) return;
+      e.preventDefault();
+      const version = ++versionBusqueda.current;
+      const parametros = new URLSearchParams({ buscar: textoBusqueda });
+      if (proveedorId) parametros.set("proveedor_id", proveedorId);
+      void apiFetch(`${apiUrl}/articulos?${parametros}`, { credentials: "include" })
+        .then(async (respuesta) => {
+          if (!respuesta.ok || version !== versionBusqueda.current) return;
+          const datos: ArticuloBuscado[] = await respuesta.json();
+          if (version !== versionBusqueda.current) return;
+          const filtrados = (soloInventario ? datos.filter((x) => x.habilitado_inventario) : datos).slice(0, 12);
+          if (filtrados.length === 1) {
+            elegir(filtrados[0]);
+            return;
+          }
+          setResultados(filtrados);
+          setIndice(filtrados.length ? 0 : -1);
+          setAbierto(true);
+        });
+      return;
+    }
     if (!abierto || !resultados.length) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
@@ -83,9 +134,6 @@ export default function BuscadorArticulo({
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setIndice((actual) => Math.max(actual - 1, 0));
-    } else if (e.key === "Enter" && indice >= 0) {
-      e.preventDefault();
-      elegir(resultados[indice]);
     } else if (e.key === "Escape") setAbierto(false);
   }
 
@@ -98,9 +146,12 @@ export default function BuscadorArticulo({
         placeholder="Codigo, descripcion, barra o codigo de proveedor"
         required={requerido}
         autoComplete="off"
+        disabled={deshabilitado}
         onFocus={() => resultados.length > 0 && setAbierto(true)}
         onKeyDown={manejarTeclado}
         onChange={(e) => {
+          versionBusqueda.current += 1;
+          omitirBusquedaSeleccion.current = false;
           setTexto(e.target.value);
           if (!e.target.value.trim()) {
             setResultados([]);

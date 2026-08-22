@@ -14,6 +14,8 @@ Existe un almacen predeterminado denominado `ALMACEN PRINCIPAL` con codigo `ALM0
 
 Cuando se crea un articulo, el sistema genera automáticamente su existencia inicial en cero para todos los almacenes activos. Cuando se crea un almacen, genera en cero la existencia de todos los articulos ya registrados.
 
+Durante el alta de un producto habilitado para inventario se puede indicar el **stock inicial por almacen**. Las cantidades positivas generan un movimiento confirmado `STOCK_INICIAL`, con usuario, fecha y saldos anterior/posterior. No se permite repetir el mismo almacen. Los servicios y los articulos sin control de inventario no admiten stock inicial. Una correccion posterior se realiza con ajuste o inventario, nunca editando el saldo inicial.
+
 ## Control e historial de stock
 
 El modulo **Stock** agrupa el control de existencias, articulos, clasificadores y almacenes. La pantalla **Control de stock** permite consultar existencias, registrar ajustes manuales, efectuar transferencias entre almacenes y revisar el historial.
@@ -22,7 +24,7 @@ Cada movimiento confirmado registra el usuario, fecha y hora, tipo, observacion,
 
 El historial funciona como kardex: inicialmente no lista todos los movimientos. Primero se busca y selecciona un producto; luego se muestran solamente sus impactos, indicando claramente si cada linea fue una **ENTRADA** o **SALIDA**, el tipo de operacion, motivo, almacen, cantidad y cambio entre stock anterior y posterior.
 
-El kardex permite filtrar adicionalmente por almacen y siempre se ordena desde la fecha mas reciente hacia la mas antigua. Cada movimiento guarda una unica fecha y hora: el momento exacto en que impacto el stock. Cada fila respeta el orden de lectura: **fecha y hora de impacto**, **operacion realizada**, **numero de transaccion**, usuario, motivo e impactos.
+El kardex permite filtrar adicionalmente por almacen y siempre se ordena de forma **ascendente**, desde la fecha y hora mas antigua hacia la mas nueva. Cada movimiento guarda una unica fecha y hora: el momento exacto en que impacto el stock. Cada fila respeta el orden de lectura: **fecha y hora de impacto**, **operacion realizada**, **numero de transaccion**, usuario, motivo e impactos.
 
 Los ajustes admiten cantidades positivas para entradas y negativas para salidas. El stock fisico puede quedar negativo: representa unidades vendidas o retiradas que todavia no fueron regularizadas y no bloquea la operacion. Las transferencias descuentan el almacen de origen y suman el almacen de destino dentro de una unica operacion.
 
@@ -54,6 +56,8 @@ La grilla de conteo permanece debajo de la cabecera y utiliza desplazamiento int
 
 Al finalizar deben estar contados todos los productos. El sistema muestra y confirma los ajustes necesarios, genera un movimiento `AJUSTE_INVENTARIO` y vincula el movimiento con el inventario. El documento finalizado conserva para siempre los valores y explicaciones cargados.
 
+Las lineas cuya diferencia es `0` tambien se guardan dentro del movimiento. No alteran la existencia, pero prueban que el producto fue contado y estaba correcto en esa fecha y hora.
+
 Si el stock de alguno de los productos cambia mientras el inventario permanece pendiente, la finalizacion se bloquea para impedir que un conteo desactualizado sobrescriba movimientos posteriores. En ese caso se debe iniciar un nuevo inventario.
 
 ## Cantidades de stock
@@ -64,4 +68,4 @@ Si el stock de alguno de los productos cambia mientras el inventario permanece p
 - **Disponible:** `fisico - reservado`.
 - **Disponible futuro:** `fisico + pedido - reservado`.
 
-En esta etapa las cantidades se visualizan. Sus modificaciones se realizaran mediante los futuros documentos de ingreso, venta, reserva, ajuste y transferencia, conservando trazabilidad.
+Las cantidades se modifican exclusivamente mediante documentos confirmados de ingreso, venta, ajuste, transferencia, stock inicial o inventario. Nunca se edita directamente una existencia.

@@ -1,9 +1,12 @@
 "use client";
 
+import { apiFetch } from "@/api";
+
 import { useEffect, useState } from "react";
 import BuscadorArticulo, {
   ArticuloBuscado,
 } from "@/components/BuscadorArticulo";
+import SelectorModoImpresion, { useModoImpresion } from "@/components/SelectorModoImpresion";
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api/v1";
 type Lista = { id: string; nombre: string; activa: boolean };
@@ -27,13 +30,14 @@ const formatos = {
 type Formato = keyof typeof formatos;
 
 export default function EtiquetasPrecios() {
+  const { modo: modoImpresion, cambiar: cambiarModoImpresion } = useModoImpresion();
   const [general, setGeneral] = useState<Lista | null>(null),
     [etiquetas, setEtiquetas] = useState<Etiqueta[]>([]),
     [formato, setFormato] = useState<Formato>("3X7"),
     [margen, setMargen] = useState(0.5),
     [mensaje, setMensaje] = useState("");
   useEffect(() => {
-    void fetch(`${apiUrl}/articulos/precios/listas`, {
+    void apiFetch(`${apiUrl}/articulos/precios/listas`, {
       credentials: "include",
     }).then(async (r) => {
       if (r.ok) {
@@ -47,8 +51,8 @@ export default function EtiquetasPrecios() {
   async function agregar(articulo: ArticuloBuscado | null) {
     if (!articulo || !general) return;
     const [r, respuestaReglas] = await Promise.all([
-      fetch(`${apiUrl}/articulos/precios/listas/${general.id}/articulos?articulo_id=${articulo.id}`, { credentials: "include" }),
-      fetch(`${apiUrl}/articulos/precios/articulos/${articulo.id}/reglas`, { credentials: "include" }),
+      apiFetch(`${apiUrl}/articulos/precios/listas/${general.id}/articulos?articulo_id=${articulo.id}`, { credentials: "include" }),
+      apiFetch(`${apiUrl}/articulos/precios/articulos/${articulo.id}/reglas`, { credentials: "include" }),
     ]);
     const d = await r.json();
     if (!r.ok || !d.length) {
@@ -61,7 +65,7 @@ export default function EtiquetasPrecios() {
       reglas
         .filter((regla) => regla.activa && regla.lista_precio_id !== general.id)
         .map(async (regla) => {
-          const respuestaPrecio = await fetch(`${apiUrl}/articulos/precios/listas/${regla.lista_precio_id}/articulos?articulo_id=${articulo.id}`, { credentials: "include" });
+          const respuestaPrecio = await apiFetch(`${apiUrl}/articulos/precios/listas/${regla.lista_precio_id}/articulos?articulo_id=${articulo.id}`, { credentials: "include" });
           if (!respuestaPrecio.ok) return null;
           const precios: Precio[] = await respuestaPrecio.json();
           if (!precios.length) return null;
@@ -118,13 +122,13 @@ export default function EtiquetasPrecios() {
               ancho.
             </p>
           </div>
-          <button
-            disabled={!etiquetas.length}
-            onClick={() => window.print()}
-            className="rounded-xl bg-[var(--marca)] px-5 py-3 text-sm font-semibold text-white disabled:opacity-40"
-          >
-            Imprimir etiquetas
-          </button>
+          <div className="flex flex-wrap items-end gap-3"><SelectorModoImpresion modo={modoImpresion} cambiar={cambiarModoImpresion}/><button
+              disabled={!etiquetas.length}
+              onClick={() => window.print()}
+              className="rounded-xl bg-[var(--marca)] px-5 py-3 text-sm font-semibold text-white disabled:opacity-40"
+            >
+              {modoImpresion==="DIRECTA"?"Imprimir directo":"Imprimir etiquetas"}
+            </button></div>
         </header>
         {mensaje && (
           <p className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">

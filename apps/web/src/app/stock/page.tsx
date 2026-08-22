@@ -1,5 +1,7 @@
 "use client";
 
+import { apiFetch } from "@/api";
+
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import BuscadorArticulo from "@/components/BuscadorArticulo";
 import type { ArticuloBuscado } from "@/components/BuscadorArticulo";
@@ -88,20 +90,20 @@ export default function PaginaStock() {
     if (almacenFiltro) parametros.set("almacen_id", almacenFiltro);
     if (articuloFiltro) parametros.set("articulo_id", articuloFiltro);
     const [ra, re, rm, ri, rc] = await Promise.all([
-      fetch(`${apiUrl}/articulos/almacenes`, { credentials: "include" }),
-      fetch(`${apiUrl}/articulos/stock/existencias?${parametros}`, {
+      apiFetch(`${apiUrl}/articulos/almacenes`, { credentials: "include" }),
+      apiFetch(`${apiUrl}/articulos/stock/existencias?${parametros}`, {
         credentials: "include",
       }),
       articuloMovimiento
-        ? fetch(
+        ? apiFetch(
             `${apiUrl}/articulos/stock/movimientos?articulo_id=${articuloMovimiento}${almacenMovimiento ? `&almacen_id=${almacenMovimiento}` : ""}`,
             { credentials: "include" },
           )
         : Promise.resolve(null),
-      fetch(`${apiUrl}/articulos/stock/inventarios`, {
+      apiFetch(`${apiUrl}/articulos/stock/inventarios`, {
         credentials: "include",
       }),
-      fetch(`${apiUrl}/articulos/clasificadores`, { credentials: "include" }),
+      apiFetch(`${apiUrl}/articulos/clasificadores`, { credentials: "include" }),
     ]);
     if (ra.ok) setAlmacenes(await ra.json());
     if (re.ok) setExistencias(await re.json());
@@ -266,7 +268,7 @@ function Existencias({
         </small>
       )}
       <div className="mt-4 overflow-x-auto">
-        <table className="w-full text-left text-sm">
+        <table data-exportar-excel="true" className="w-full text-left text-sm">
           <thead>
             <tr className="text-xs uppercase text-[var(--texto-suave)]">
               <th className="p-3">Articulo</th>
@@ -327,7 +329,7 @@ function Inventarios({
   async function agregarClasificador(id: string) {
     setClasificador(id);
     if (!id) return;
-    const r = await fetch(`${apiUrl}/articulos?clasificador_ids=${id}`, {
+    const r = await apiFetch(`${apiUrl}/articulos?clasificador_ids=${id}`, {
       credentials: "include",
     });
     if (!r.ok) {
@@ -343,7 +345,7 @@ function Inventarios({
     ]);
   }
   async function agregarTodos() {
-    const r = await fetch(`${apiUrl}/articulos`, { credentials: "include" });
+    const r = await apiFetch(`${apiUrl}/articulos`, { credentials: "include" });
     if (!r.ok) {
       setError("No se pudieron cargar todos los articulos");
       return;
@@ -354,7 +356,7 @@ function Inventarios({
   }
   async function crear(e: FormEvent) {
     e.preventDefault();
-    const r = await fetch(`${apiUrl}/articulos/stock/inventarios`, {
+    const r = await apiFetch(`${apiUrl}/articulos/stock/inventarios`, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
@@ -373,7 +375,7 @@ function Inventarios({
   }
   async function eliminar(id: string) {
     if (!window.confirm("¿Eliminar este inventario sin iniciar?")) return;
-    const r = await fetch(`${apiUrl}/articulos/stock/inventarios/${id}`, {
+    const r = await apiFetch(`${apiUrl}/articulos/stock/inventarios/${id}`, {
       method: "DELETE",
       credentials: "include",
     });
@@ -506,7 +508,7 @@ function Inventarios({
         </form>
       )}
       <div className="overflow-x-auto rounded-2xl border bg-white p-5">
-        <table className="w-full text-left text-sm">
+        <table data-exportar-excel="true" className="w-full text-left text-sm">
           <thead>
             <tr>
               <th>Numero</th>
@@ -583,7 +585,7 @@ function FormularioMovimiento({
             observacion: observacion || null,
             detalles: [{ articulo_id: articulo, cantidad }],
           };
-    const r = await fetch(
+    const r = await apiFetch(
       `${apiUrl}/articulos/stock/${tipo === "ajuste" ? "ajustes" : "transferencias"}`,
       {
         method: "POST",
@@ -753,7 +755,7 @@ function Movimientos({
       )}
       {articuloSeleccionado && filas.length > 0 && (
         <div className="max-h-[65vh] overflow-auto rounded-2xl border bg-white">
-          <table className="min-w-[1300px] w-full text-left text-sm">
+          <table data-exportar-excel="true" className="min-w-[1300px] w-full text-left text-sm">
             <thead className="sticky top-0 z-10 bg-white text-xs uppercase text-[var(--texto-suave)]">
               <tr>
                 <th className="p-3">Fecha y hora</th>
@@ -771,7 +773,9 @@ function Movimientos({
             <tbody>
               {filas.flatMap((m) =>
                 m.detalles.map((d) => {
-                  const entrada = Number(d.cantidad_base) > 0;
+                  const cantidad = Number(d.cantidad_base);
+                  const entrada = cantidad > 0;
+                  const esControl = cantidad === 0;
                   return (
                     <tr key={d.id} className="border-t align-middle">
                       <td className="whitespace-nowrap p-3">
@@ -787,9 +791,9 @@ function Movimientos({
                         {m.observacion || "SIN OBSERVACION"}
                       </td>
                       <td
-                        className={`font-semibold ${entrada ? "text-green-700" : "text-red-700"}`}
+                        className={`font-semibold ${esControl ? "text-blue-700" : entrada ? "text-green-700" : "text-red-700"}`}
                       >
-                        {entrada ? "ENTRADA" : "SALIDA"}
+                        {esControl ? "CONTEO OK" : entrada ? "ENTRADA" : "SALIDA"}
                       </td>
                       <td>{d.almacen_codigo}</td>
                       <td>

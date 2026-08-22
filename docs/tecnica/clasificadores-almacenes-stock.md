@@ -54,6 +54,10 @@ La migracion `20260816_0024` crea `inventarios_stock` e `inventarios_stock_detal
 
 La confirmacion bloquea las existencias involucradas con `SELECT ... FOR UPDATE` y compara el saldo actual contra el snapshot. Si existe una diferencia externa, responde `409` sin modificar saldos. Si coincide, calcula `cantidad_contada - cantidad_esperada` y utiliza el mismo motor transaccional de movimientos para confirmar el ajuste.
 
+La migracion `20260821_0038` elimina la restriccion que prohibia detalles con cantidad cero. Al finalizar se persiste un detalle por cada articulo contado, incluso si la diferencia es `0`; esos detalles son evidencia de control y no cambian el saldo. La misma version habilita el alta con stock inicial: `POST /api/v1/articulos` crea una cabecera `STOCK_INICIAL` y sus impactos positivos dentro de la transaccion de alta. La lista de almacenes del payload debe ser unica y solo se acepta si el articulo controla inventario.
+
+`GET /api/v1/articulos/stock/movimientos` ordena por `fecha_confirmacion` y numero en forma ascendente. Este orden cronologico se conserva en el frontend y en la exportacion Excel.
+
 Endpoints:
 
 - `GET|POST /api/v1/articulos/stock/inventarios`;

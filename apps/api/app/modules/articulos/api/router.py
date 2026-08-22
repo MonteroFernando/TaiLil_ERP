@@ -44,6 +44,7 @@ from app.modules.articulos.api.schemas import (
     CuentaCorrienteVentasConfigurar,
     CuentaCorrienteVentasVista,
     CuentaPadreSocioActualizar,
+    DescripcionPosActualizar,
     DocumentoCompraVista,
     DomicilioTerceroActualizar,
     DomicilioTerceroCrear,
@@ -68,6 +69,7 @@ from app.modules.articulos.api.schemas import (
     PrecioBaseMasivoActualizar,
     PrecioBaseMasivoResultado,
     PrecioListaArticuloActualizar,
+    PrecioVentaConsultaVista,
     ProveedorActualizar,
     ProveedorCrear,
     ProveedorVista,
@@ -124,6 +126,37 @@ from app.modules.usuarios.application.permisos import obtener_codigos_permisos
 from app.modules.usuarios.infrastructure.models import Usuario
 
 router = APIRouter(prefix="/articulos", tags=["Maestro de articulos"])
+
+
+def aplicar_busqueda_articulos(consulta, buscar: str | None, proveedor_id: UUID | None = None):
+    """Aplica todos los terminos, en cualquier orden, sobre los identificadores operativos."""
+    if not buscar:
+        return consulta
+    for termino in buscar.split():
+        patron = f"%{termino}%"
+        filtro_codigo_proveedor = [
+            ArticuloProveedor.articulo_id == Articulo.id,
+            ArticuloProveedor.codigo_proveedor.ilike(patron),
+            ArticuloProveedor.activo.is_(True),
+        ]
+        if proveedor_id:
+            filtro_codigo_proveedor.append(ArticuloProveedor.proveedor_id == proveedor_id)
+        consulta = consulta.where(
+            or_(
+                Articulo.codigo.ilike(patron),
+                Articulo.descripcion.ilike(patron),
+                Articulo.descripcion_ampliada.ilike(patron),
+                select(CodigoBarraArticulo.id)
+                .where(
+                    CodigoBarraArticulo.articulo_id == Articulo.id,
+                    CodigoBarraArticulo.codigo.ilike(patron),
+                    CodigoBarraArticulo.activo.is_(True),
+                )
+                .exists(),
+                select(ArticuloProveedor.id).where(*filtro_codigo_proveedor).exists(),
+            )
+        )
+    return consulta
 
 
 def unidad_vista(unidad: UnidadMedida) -> UnidadMedidaVista:
@@ -211,6 +244,141 @@ async def construir_resumen(articulo: Articulo, sesion: AsyncSession) -> Articul
         unidad_base=unidad_vista(unidad),
         alicuota_iva=alicuota_iva_vista(alicuota),
         clasificador_ids=clasificador_ids,
+    )
+
+
+async def calcular_saldo_favor_cliente(socio_id: UUID, sesion: AsyncSession) -> Decimal:
+    total_cobrado = Decimal(
+        await sesion.scalar(
+            select(func.coalesce(func.sum(CobroDocumento.total), 0)).where(
+                CobroDocumento.cliente_id == socio_id,
+                CobroDocumento.estado == "CONFIRMADO",
+            )
+        )
+    )
+    total_imputado = Decimal(
+        await sesion.scalar(
+            select(func.coalesce(func.sum(ImputacionCobroVenta.importe), 0))
+            .join(CobroDocumento, CobroDocumento.id == ImputacionCobroVenta.cobro_id)
+            .where(
+                CobroDocumento.cliente_id == socio_id,
+                CobroDocumento.estado == "CONFIRMADO",
+                ImputacionCobroVenta.estado == "ACTIVA",
+            )
+        )
+    )
+    return max(Decimal("0"), total_cobrado - total_imputado)
+
+
+async def preparar_imputaciones_saldo_favor(
+    socio_id: UUID, importe_maximo: Decimal, sesion: AsyncSession
+) -> list[tuple[CobroDocumento, Decimal]]:
+    if importe_maximo <= 0:
+        return []
+    cobros = list(
+        await sesion.scalars(
+            select(CobroDocumento)
+            .where(
+                CobroDocumento.cliente_id == socio_id,
+                CobroDocumento.estado == "CONFIRMADO",
+            )
+            .order_by(CobroDocumento.fecha_realizacion, CobroDocumento.numero)
+            .with_for_update()
+        )
+    )
+    restante = importe_maximo
+    aplicaciones: list[tuple[CobroDocumento, Decimal]] = []
+    for cobro in cobros:
+        ya_imputado = Decimal(
+            await sesion.scalar(
+                select(func.coalesce(func.sum(ImputacionCobroVenta.importe), 0)).where(
+                    ImputacionCobroVenta.cobro_id == cobro.id,
+                    ImputacionCobroVenta.estado == "ACTIVA",
+                )
+            )
+        )
+        disponible = max(Decimal("0"), cobro.total - ya_imputado)
+        aplicar = min(disponible, restante)
+        if aplicar > 0:
+            aplicaciones.append((cobro, aplicar))
+            restante -= aplicar
+        if restante <= 0:
+            break
+    return aplicaciones
+
+
+async def calcular_estado_cuenta_corriente_ventas(
+    cuenta: CuentaCorrienteVenta, socio_id: UUID, sesion: AsyncSession
+) -> dict[str, Decimal | bool]:
+    deuda_actual = Decimal(
+        await sesion.scalar(
+            select(func.coalesce(func.sum(VentaDocumento.saldo_pendiente), 0)).where(
+                VentaDocumento.cliente_id == socio_id,
+                VentaDocumento.estado == "CONFIRMADO",
+            )
+        )
+    )
+    dias_periodo = {"diaria": 1, "semanal": 7, "mensual": 30}.get(
+        cuenta.temporalidad, 30
+    )
+    inicio_periodo = datetime.now(UTC) - timedelta(days=dias_periodo)
+    consumo_periodo = Decimal(
+        await sesion.scalar(
+            select(func.coalesce(func.sum(VentaDocumento.saldo_pendiente), 0)).where(
+                VentaDocumento.cliente_id == socio_id,
+                VentaDocumento.estado == "CONFIRMADO",
+                VentaDocumento.fecha_realizacion >= inicio_periodo,
+            )
+        )
+    )
+    deuda_vencida = False
+    if cuenta.dias_maximos_deuda:
+        deuda_mas_antigua = await sesion.scalar(
+            select(VentaDocumento.fecha_realizacion)
+            .where(
+                VentaDocumento.cliente_id == socio_id,
+                VentaDocumento.estado == "CONFIRMADO",
+                VentaDocumento.saldo_pendiente > 0,
+            )
+            .order_by(VentaDocumento.fecha_realizacion)
+            .limit(1)
+        )
+        deuda_vencida = bool(
+            deuda_mas_antigua
+            and datetime.now(UTC) - deuda_mas_antigua
+            > timedelta(days=cuenta.dias_maximos_deuda)
+        )
+    disponible_deuda = max(Decimal("0"), cuenta.limite_deuda - deuda_actual)
+    disponible_periodo = max(Decimal("0"), cuenta.limite_periodo - consumo_periodo)
+    credito_disponible = (
+        min(disponible_deuda, disponible_periodo)
+        if cuenta.activa and not deuda_vencida
+        else Decimal("0")
+    )
+    saldo_favor = await calcular_saldo_favor_cliente(socio_id, sesion)
+    return {
+        "deuda_actual": deuda_actual,
+        "consumo_periodo": consumo_periodo,
+        "credito_disponible": credito_disponible,
+        "saldo_favor": saldo_favor,
+        "disponible_total": saldo_favor + credito_disponible,
+        "deuda_vencida": deuda_vencida,
+    }
+
+
+def cuenta_corriente_ventas_vista(
+    cuenta: CuentaCorrienteVenta,
+    socio_id: UUID,
+    estado: dict[str, Decimal | bool],
+) -> CuentaCorrienteVentasVista:
+    return CuentaCorrienteVentasVista(
+        socio_id=socio_id,
+        activa=cuenta.activa,
+        limite_deuda=cuenta.limite_deuda,
+        limite_periodo=cuenta.limite_periodo,
+        temporalidad=cuenta.temporalidad,
+        dias_maximos_deuda=cuenta.dias_maximos_deuda,
+        **estado,
     )
 
 
@@ -647,15 +815,14 @@ async def obtener_cuenta_corriente_ventas(
         select(CuentaCorrienteVenta).where(CuentaCorrienteVenta.socio_id == socio_id)
     )
     if cuenta is None:
-        return CuentaCorrienteVentasVista(socio_id=socio_id)
-    return CuentaCorrienteVentasVista(
-        socio_id=socio_id,
-        activa=cuenta.activa,
-        limite_deuda=cuenta.limite_deuda,
-        limite_periodo=cuenta.limite_periodo,
-        temporalidad=cuenta.temporalidad,
-        dias_maximos_deuda=cuenta.dias_maximos_deuda,
-    )
+        saldo_favor = await calcular_saldo_favor_cliente(socio_id, sesion)
+        return CuentaCorrienteVentasVista(
+            socio_id=socio_id,
+            saldo_favor=saldo_favor,
+            disponible_total=saldo_favor,
+        )
+    estado = await calcular_estado_cuenta_corriente_ventas(cuenta, socio_id, sesion)
+    return cuenta_corriente_ventas_vista(cuenta, socio_id, estado)
 
 
 @router.put(
@@ -681,7 +848,9 @@ async def configurar_cuenta_corriente_ventas(
         for campo, valor in datos.model_dump().items():
             setattr(cuenta, campo, valor)
     await sesion.commit()
-    return CuentaCorrienteVentasVista(socio_id=socio_id, **datos.model_dump())
+    await sesion.refresh(cuenta)
+    estado = await calcular_estado_cuenta_corriente_ventas(cuenta, socio_id, sesion)
+    return cuenta_corriente_ventas_vista(cuenta, socio_id, estado)
 
 
 @router.put(
@@ -1083,30 +1252,7 @@ async def listar_existencias_stock(
         consulta = consulta.where(StockArticuloAlmacen.almacen_id == almacen_id)
     if articulo_id:
         consulta = consulta.where(StockArticuloAlmacen.articulo_id == articulo_id)
-    if buscar:
-        for termino in buscar.split():
-            patron = f"%{termino}%"
-            consulta = consulta.where(
-                or_(
-                    Articulo.codigo.ilike(patron),
-                    Articulo.descripcion.ilike(patron),
-                    Articulo.descripcion_ampliada.ilike(patron),
-                    select(CodigoBarraArticulo.id)
-                    .where(
-                        CodigoBarraArticulo.articulo_id == Articulo.id,
-                        CodigoBarraArticulo.codigo.ilike(patron),
-                        CodigoBarraArticulo.activo.is_(True),
-                    )
-                    .exists(),
-                    select(ArticuloProveedor.id)
-                    .where(
-                        ArticuloProveedor.articulo_id == Articulo.id,
-                        ArticuloProveedor.codigo_proveedor.ilike(patron),
-                        ArticuloProveedor.activo.is_(True),
-                    )
-                    .exists(),
-                )
-            )
+    consulta = aplicar_busqueda_articulos(consulta, buscar)
     filas = (await sesion.execute(consulta.limit(500))).all()
     return [
         ExistenciaStockVista(
@@ -1197,10 +1343,8 @@ async def listar_movimientos_stock(
     almacen_id: UUID | None = None,
     sesion: AsyncSession = Depends(obtener_sesion),
 ) -> list[MovimientoStockVista]:
-    consulta = (
-        select(MovimientoStock)
-        .order_by(MovimientoStock.fecha_confirmacion.desc(), MovimientoStock.numero.desc())
-        .limit(200)
+    consulta = select(MovimientoStock).order_by(
+        MovimientoStock.fecha_confirmacion, MovimientoStock.numero
     )
     if articulo_id or almacen_id:
         filtros = [MovimientoStockDetalle.movimiento_id == MovimientoStock.id]
@@ -1278,7 +1422,7 @@ async def listar_inventarios_stock(
 ) -> list[InventarioStockVista]:
     inventarios = list(
         await sesion.scalars(
-            select(InventarioStock).order_by(InventarioStock.numero.desc()).limit(100)
+            select(InventarioStock).order_by(InventarioStock.fecha_creacion, InventarioStock.numero)
         )
     )
     return [await inventario_stock_vista(item, sesion) for item in inventarios]
@@ -1454,12 +1598,11 @@ async def finalizar_inventario_stock(
     )
     for detalle in detalles:
         diferencia = detalle.cantidad_contada - detalle.cantidad_esperada
-        if diferencia:
-            articulo = await sesion.get(Articulo, detalle.articulo_id)
-            if articulo:
-                await aplicar_impacto_stock(
-                    sesion, movimiento, articulo, inventario.almacen_id, diferencia
-                )
+        articulo = await sesion.get(Articulo, detalle.articulo_id)
+        if articulo:
+            await aplicar_impacto_stock(
+                sesion, movimiento, articulo, inventario.almacen_id, diferencia
+            )
     inventario.estado = "FINALIZADO"
     inventario.usuario_finalizacion_id = usuario.id
     inventario.movimiento_ajuste_id = movimiento.id
@@ -1567,6 +1710,41 @@ async def precio_articulo_lista_vista(
 
 
 @router.get(
+    "/precios/consulta-venta/{articulo_id}",
+    response_model=list[PrecioVentaConsultaVista],
+    dependencies=[Depends(requerir_permiso("ventas.ver"))],
+)
+async def consultar_precios_venta(
+    articulo_id: UUID,
+    sesion: AsyncSession = Depends(obtener_sesion),
+) -> list[PrecioVentaConsultaVista]:
+    articulo = await sesion.get(Articulo, articulo_id)
+    if articulo is None or not articulo.habilitado:
+        raise HTTPException(status_code=404, detail="Articulo no encontrado")
+    listas = list(
+        await sesion.scalars(
+            select(ListaPrecio)
+            .where(ListaPrecio.es_base.is_(False), ListaPrecio.activa.is_(True))
+            .order_by(ListaPrecio.nombre)
+        )
+    )
+    precios: list[PrecioVentaConsultaVista] = []
+    for lista in listas:
+        precio = await precio_articulo_lista_vista(articulo, lista, sesion)
+        precios.append(
+            PrecioVentaConsultaVista(
+                lista_id=lista.id,
+                lista_nombre=lista.nombre,
+                articulo_id=articulo.id,
+                articulo_codigo=articulo.codigo,
+                articulo_descripcion=articulo.descripcion,
+                precio_venta_bruto=precio.precio_venta_bruto,
+            )
+        )
+    return precios
+
+
+@router.get(
     "/precios/listas/{lista_id}/articulos",
     response_model=list[PrecioArticuloListaVista],
     dependencies=[Depends(requerir_permiso("ventas.ver"))],
@@ -1584,11 +1762,7 @@ async def consultar_precios_lista(
     if articulo_id:
         consulta = consulta.where(Articulo.id == articulo_id)
     elif buscar:
-        for termino in buscar.split():
-            patron = f"%{termino}%"
-            consulta = consulta.where(
-                or_(Articulo.codigo.ilike(patron), Articulo.descripcion.ilike(patron))
-            )
+        consulta = aplicar_busqueda_articulos(consulta, buscar)
     else:
         return []
     articulos = list(await sesion.scalars(consulta.order_by(Articulo.codigo).limit(50)))
@@ -1953,6 +2127,66 @@ async def crear_punto_venta(
     return punto
 
 
+@router.patch(
+    "/pos/configuracion/puntos-venta/{punto_id}",
+    response_model=PuntoVentaVista,
+)
+async def actualizar_descripcion_punto_venta(
+    punto_id: UUID,
+    datos: DescripcionPosActualizar,
+    usuario: Usuario = Depends(obtener_usuario_actual),
+    sesion: AsyncSession = Depends(obtener_sesion),
+) -> PuntoVenta:
+    if not usuario.es_administrador:
+        raise HTTPException(status_code=403, detail="Solo un administrador puede configurar puntos")
+    punto = await sesion.get(PuntoVenta, punto_id)
+    if punto is None:
+        raise HTTPException(status_code=404, detail="Punto de venta no encontrado")
+    punto.descripcion = normalizar_mayusculas(datos.descripcion)
+    await sesion.commit()
+    await sesion.refresh(punto)
+    return punto
+
+
+@router.delete(
+    "/pos/configuracion/puntos-venta/{punto_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def eliminar_punto_venta(
+    punto_id: UUID,
+    usuario: Usuario = Depends(obtener_usuario_actual),
+    sesion: AsyncSession = Depends(obtener_sesion),
+) -> Response:
+    if not usuario.es_administrador:
+        raise HTTPException(status_code=403, detail="Solo un administrador puede configurar puntos")
+    punto = await sesion.get(PuntoVenta, punto_id)
+    if punto is None:
+        raise HTTPException(status_code=404, detail="Punto de venta no encontrado")
+    cajas_ids = select(CajaVenta.id).where(CajaVenta.punto_venta_id == punto.id)
+    tiene_ventas = await sesion.scalar(
+        select(VentaDocumento.id)
+        .where(
+            or_(
+                VentaDocumento.punto_venta_id == punto.id,
+                VentaDocumento.caja_id.in_(cajas_ids),
+            )
+        )
+        .limit(1)
+    )
+    tiene_aperturas = await sesion.scalar(
+        select(AperturaCaja.id).where(AperturaCaja.caja_id.in_(cajas_ids)).limit(1)
+    )
+    if punto.ultimo_numero > 0 or tiene_ventas is not None or tiene_aperturas is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="El punto de venta tiene historial y no puede eliminarse",
+        )
+    await sesion.execute(delete(CajaVenta).where(CajaVenta.punto_venta_id == punto.id))
+    await sesion.delete(punto)
+    await sesion.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.get(
     "/pos/configuracion/cajas",
     response_model=list[CajaVentaVista],
@@ -1999,6 +2233,54 @@ async def crear_caja_venta(
     await sesion.commit()
     await sesion.refresh(caja)
     return caja
+
+
+@router.patch(
+    "/pos/configuracion/cajas/{caja_id}",
+    response_model=CajaVentaVista,
+)
+async def actualizar_descripcion_caja_venta(
+    caja_id: UUID,
+    datos: DescripcionPosActualizar,
+    usuario: Usuario = Depends(obtener_usuario_actual),
+    sesion: AsyncSession = Depends(obtener_sesion),
+) -> CajaVenta:
+    if not usuario.es_administrador:
+        raise HTTPException(status_code=403, detail="Solo un administrador puede configurar cajas")
+    caja = await sesion.get(CajaVenta, caja_id)
+    if caja is None:
+        raise HTTPException(status_code=404, detail="Caja no encontrada")
+    caja.descripcion = normalizar_mayusculas(datos.descripcion)
+    await sesion.commit()
+    await sesion.refresh(caja)
+    return caja
+
+
+@router.delete(
+    "/pos/configuracion/cajas/{caja_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def eliminar_caja_venta(
+    caja_id: UUID,
+    usuario: Usuario = Depends(obtener_usuario_actual),
+    sesion: AsyncSession = Depends(obtener_sesion),
+) -> Response:
+    if not usuario.es_administrador:
+        raise HTTPException(status_code=403, detail="Solo un administrador puede configurar cajas")
+    caja = await sesion.get(CajaVenta, caja_id)
+    if caja is None:
+        raise HTTPException(status_code=404, detail="Caja no encontrada")
+    tiene_aperturas = await sesion.scalar(
+        select(AperturaCaja.id).where(AperturaCaja.caja_id == caja.id).limit(1)
+    )
+    tiene_ventas = await sesion.scalar(
+        select(VentaDocumento.id).where(VentaDocumento.caja_id == caja.id).limit(1)
+    )
+    if tiene_aperturas is not None or tiene_ventas is not None:
+        raise HTTPException(status_code=409, detail="La caja tiene historial y no puede eliminarse")
+    await sesion.delete(caja)
+    await sesion.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get(
@@ -2105,7 +2387,10 @@ async def venta_pos_vista(venta: VentaDocumento, sesion: AsyncSession) -> PosVen
     cobro = await sesion.scalar(
         select(CobroDocumento)
         .join(ImputacionCobroVenta, ImputacionCobroVenta.cobro_id == CobroDocumento.id)
-        .where(ImputacionCobroVenta.venta_id == venta.id)
+        .where(
+            ImputacionCobroVenta.venta_id == venta.id,
+            ImputacionCobroVenta.estado == "ACTIVA",
+        )
         .order_by(CobroDocumento.fecha_realizacion.desc())
         .limit(1)
     )
@@ -2164,43 +2449,16 @@ async def validar_credito_cliente(
             status_code=409,
             detail="El cliente no tiene habilitada la cuenta corriente",
         )
-    deuda_actual = await sesion.scalar(
-        select(func.coalesce(func.sum(VentaDocumento.saldo_pendiente), 0)).where(
-            VentaDocumento.cliente_id == cliente_id,
-            VentaDocumento.estado == "CONFIRMADO",
-        )
-    )
-    if Decimal(deuda_actual) + nuevo_saldo > cuenta.limite_deuda:
+    estado = await calcular_estado_cuenta_corriente_ventas(cuenta, cliente_id, sesion)
+    if estado["deuda_actual"] + nuevo_saldo > cuenta.limite_deuda:
         raise HTTPException(status_code=409, detail="El cliente supera su limite maximo de deuda")
-    dias_periodo = {"diaria": 1, "semanal": 7, "mensual": 30}.get(cuenta.temporalidad, 30)
-    inicio_periodo = datetime.now(UTC) - timedelta(days=dias_periodo)
-    generado_periodo = await sesion.scalar(
-        select(func.coalesce(func.sum(VentaDocumento.saldo_pendiente), 0)).where(
-            VentaDocumento.cliente_id == cliente_id,
-            VentaDocumento.estado == "CONFIRMADO",
-            VentaDocumento.fecha_realizacion >= inicio_periodo,
-        )
-    )
-    if Decimal(generado_periodo) + nuevo_saldo > cuenta.limite_periodo:
+    if estado["consumo_periodo"] + nuevo_saldo > cuenta.limite_periodo:
         raise HTTPException(
             status_code=409,
             detail=f"El cliente supera su limite {cuenta.temporalidad} de cuenta corriente",
         )
-    if cuenta.dias_maximos_deuda:
-        deuda_mas_antigua = await sesion.scalar(
-            select(VentaDocumento.fecha_realizacion)
-            .where(
-                VentaDocumento.cliente_id == cliente_id,
-                VentaDocumento.estado == "CONFIRMADO",
-                VentaDocumento.saldo_pendiente > 0,
-            )
-            .order_by(VentaDocumento.fecha_realizacion)
-            .limit(1)
-        )
-        if deuda_mas_antigua and datetime.now(UTC) - deuda_mas_antigua > timedelta(
-            days=cuenta.dias_maximos_deuda
-        ):
-            raise HTTPException(status_code=409, detail="El cliente posee deuda vencida")
+    if estado["deuda_vencida"]:
+        raise HTTPException(status_code=409, detail="El cliente posee deuda vencida")
 
 
 @router.post(
@@ -2285,6 +2543,7 @@ async def guardar_borrador_pos(
                 lista_precio_id=lista.id,
                 cantidad_base=linea.cantidad_base,
                 precio_unitario_bruto=precio.precio_venta_bruto,
+                costo_unitario_bruto=precio.precio_base_bruto,
                 precio_anterior_bruto=precio_anterior,
                 descuento_porcentual=descuento,
                 porcentaje_iva=alicuota.porcentaje,
@@ -2418,21 +2677,59 @@ async def crear_venta_pos(
             )
         )
 
-    pagos_confirmados = list(datos.pagos)
+    pagos_cuenta_corriente = [
+        pago for pago in datos.pagos if pago.medio == "CUENTA_CORRIENTE"
+    ]
+    pagos_confirmados = [
+        pago for pago in datos.pagos if pago.medio != "CUENTA_CORRIENTE"
+    ]
+    importe_cuenta_corriente = importe_dos_decimales(
+        sum((pago.importe for pago in pagos_cuenta_corriente), Decimal("0"))
+    )
     total_pagado = importe_dos_decimales(sum((p.importe for p in pagos_confirmados), Decimal("0")))
     if total_pagado > total_bruto:
         raise HTTPException(status_code=400, detail="Los pagos superan el total de la venta")
     saldo_pendiente = importe_dos_decimales(total_bruto - total_pagado)
-    # La pantalla y el backend calculan con distinta representacion numerica
-    # (Number en el navegador y Decimal aqui). Una diferencia de un centavo por
-    # redondeo se absorbe en el ultimo medio de pago y nunca genera deuda.
-    if Decimal("0") < saldo_pendiente <= Decimal("0.01") and pagos_confirmados:
-        ultimo = pagos_confirmados[-1]
-        pagos_confirmados[-1] = ultimo.model_copy(
-            update={"importe": importe_dos_decimales(ultimo.importe + saldo_pendiente)}
+    aplicaciones_saldo_favor: list[tuple[CobroDocumento, Decimal]] = []
+    if datos.cliente_id is not None and saldo_pendiente > 0:
+        aplicaciones_saldo_favor = await preparar_imputaciones_saldo_favor(
+            cliente.id, saldo_pendiente, sesion
         )
-        total_pagado = total_bruto
-        saldo_pendiente = Decimal("0.00")
+        saldo_favor_aplicado = importe_dos_decimales(
+            sum((importe for _, importe in aplicaciones_saldo_favor), Decimal("0"))
+        )
+        saldo_pendiente = importe_dos_decimales(saldo_pendiente - saldo_favor_aplicado)
+    else:
+        saldo_favor_aplicado = Decimal("0.00")
+
+    if not datos.pagos and saldo_favor_aplicado <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Debe indicar un medio de pago o seleccionar CUENTA CORRIENTE; "
+                "no se permite generar deuda de manera implicita"
+            ),
+        )
+    if importe_cuenta_corriente != saldo_pendiente:
+        if importe_cuenta_corriente <= 0 and saldo_pendiente > 0:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Queda un saldo de ${saldo_pendiente:.2f}. Seleccione "
+                    "CUENTA CORRIENTE e indique expresamente ese importe"
+                ),
+            )
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "La cobertura del cobro no coincide con el total. "
+                f"Total: ${total_bruto:.2f}; pagado ahora: ${total_pagado:.2f}; "
+                f"saldo a favor aplicado: ${saldo_favor_aplicado:.2f}; "
+                f"cuenta corriente requerida: ${saldo_pendiente:.2f}; "
+                f"cuenta corriente indicada: ${importe_cuenta_corriente:.2f}"
+            ),
+        )
+    saldo_pendiente = importe_cuenta_corriente
     if saldo_pendiente > 0:
         try:
             await validar_credito_cliente(cliente.id, saldo_pendiente, sesion)
@@ -2441,7 +2738,9 @@ async def crear_venta_pos(
                 status_code=error.status_code,
                 detail=(
                     f"{error.detail}. Total: ${total_bruto:.2f}; "
-                    f"pagado: ${total_pagado:.2f}; saldo: ${saldo_pendiente:.2f}"
+                    f"pagado ahora: ${total_pagado:.2f}; "
+                    f"saldo a favor aplicado: ${saldo_favor_aplicado:.2f}; "
+                    f"saldo: ${saldo_pendiente:.2f}"
                 ),
             ) from error
 
@@ -2495,6 +2794,7 @@ async def crear_venta_pos(
                 lista_precio_id=lista.id,
                 cantidad_base=cantidad,
                 precio_unitario_bruto=precio.precio_venta_bruto,
+                costo_unitario_bruto=precio.precio_base_bruto,
                 precio_anterior_bruto=precio_anterior,
                 descuento_porcentual=descuento,
                 porcentaje_iva=alicuota.porcentaje,
@@ -2517,6 +2817,17 @@ async def crear_venta_pos(
                 venta.movimiento_stock_id = movimiento.id
             await aplicar_impacto_stock(sesion, movimiento, articulo, almacen.id, -cantidad)
 
+    for cobro_anterior, importe in aplicaciones_saldo_favor:
+        sesion.add(
+            ImputacionCobroVenta(
+                cobro_id=cobro_anterior.id,
+                venta_id=venta.id,
+                importe=importe,
+                estado="ACTIVA",
+                usuario_id=usuario.id,
+            )
+        )
+
     if total_pagado > 0:
         numero_cobro = await sesion.scalar(select(Sequence("secuencia_cobros").next_value()))
         cobro = CobroDocumento(
@@ -2525,6 +2836,7 @@ async def crear_venta_pos(
             estado="CONFIRMADO",
             total=total_pagado,
             usuario_id=usuario.id,
+            apertura_caja_id=apertura.id,
         )
         sesion.add(cobro)
         await sesion.flush()
@@ -2541,7 +2853,15 @@ async def crear_venta_pos(
                 for pago in pagos_confirmados
             ]
         )
-        sesion.add(ImputacionCobroVenta(cobro_id=cobro.id, venta_id=venta.id, importe=total_pagado))
+        sesion.add(
+            ImputacionCobroVenta(
+                cobro_id=cobro.id,
+                venta_id=venta.id,
+                importe=total_pagado,
+                estado="ACTIVA",
+                usuario_id=usuario.id,
+            )
+        )
     await sesion.commit()
     await sesion.refresh(venta)
     return await venta_pos_vista(venta, sesion)
@@ -2576,6 +2896,7 @@ async def listar_ventas_pos(
 async def imprimir_venta_pos(
     venta_id: UUID,
     formato: str = Query(default="ticket", pattern="^(ticket|a4)$"),
+    automatico: bool = False,
     usuario: Usuario = Depends(obtener_usuario_actual),
     sesion: AsyncSession = Depends(obtener_sesion),
 ) -> HTMLResponse:
@@ -2605,36 +2926,53 @@ async def imprimir_venta_pos(
             f"<td class='num'>{linea.total_bruto:.2f}</td></tr>"
         )
     filas = "".join(filas_partes)
-    medios = (
-        (
-            await sesion.execute(
-                select(CobroMedioPago)
-                .join(CobroDocumento, CobroDocumento.id == CobroMedioPago.cobro_id)
-                .join(ImputacionCobroVenta, ImputacionCobroVenta.cobro_id == CobroDocumento.id)
-                .where(ImputacionCobroVenta.venta_id == venta.id)
+    aplicaciones = (
+        await sesion.execute(
+            select(ImputacionCobroVenta, CobroDocumento)
+            .join(CobroDocumento, CobroDocumento.id == ImputacionCobroVenta.cobro_id)
+            .where(
+                ImputacionCobroVenta.venta_id == venta.id,
+                ImputacionCobroVenta.estado == "ACTIVA",
+            )
+            .order_by(ImputacionCobroVenta.fecha_imputacion, CobroDocumento.numero)
+        )
+    ).all()
+    pagos_partes = []
+    for imputacion, cobro in aplicaciones:
+        nombres_medios = list(
+            await sesion.scalars(
+                select(CobroMedioPago.medio).where(CobroMedioPago.cobro_id == cobro.id)
             )
         )
-        .scalars()
-        .all()
-    )
-    pagos_html = "".join(f"<p>{escape(medio.medio)}: ${medio.importe:.2f}</p>" for medio in medios)
+        medios_texto = " + ".join(dict.fromkeys(nombres_medios)) or "SALDO A FAVOR"
+        pagos_partes.append(
+            f"<p>Cobro #{cobro.numero} · {escape(medios_texto)} · "
+            f"aplicado: ${imputacion.importe:.2f}</p>"
+        )
+    pagos_html = "".join(pagos_partes)
     cajero = await sesion.get(Usuario, venta.usuario_id)
     reimpresion = "<div class='reimpresion'>REIMPRESION</div>" if cantidad_impresiones else ""
     ancho = "80mm" if formato == "ticket" else "210mm"
     margen = "3mm" if formato == "ticket" else "14mm"
+    impresion_automatica = (
+        "<script>window.addEventListener('load',()=>{window.onafterprint=()=>window.close();"
+        "window.setTimeout(()=>window.print(),150)})</script>"
+        if automatico
+        else ""
+    )
     html = f"""<!doctype html><html><head><meta charset='utf-8'><title>{vista.numero_completo}</title>
     <style>@page{{size:{"80mm auto" if formato == "ticket" else "A4"};margin:{margen}}}
     body{{font-family:Arial,sans-serif;width:{ancho};max-width:100%;margin:auto;color:#111;font-size:{"11px" if formato == "ticket" else "13px"}}}
     h1,p{{margin:4px 0}}h1{{text-align:center;font-size:18px}}.centro{{text-align:center}}.reimpresion{{border:1px solid;text-align:center;font-weight:bold;padding:4px}}
     table{{width:100%;border-collapse:collapse;margin-top:8px}}th,td{{border-bottom:1px dashed #777;padding:5px 2px;text-align:left}}.num{{text-align:right;white-space:nowrap}}
-    .total{{font-size:18px;font-weight:bold;text-align:right;margin-top:10px}}.acciones{{margin:12px 0;text-align:center}}@media print{{.acciones{{display:none}}}}</style></head>
+    .total{{font-size:18px;font-weight:bold;text-align:right;margin-top:10px}}.fin-ticket{{height:12mm}}.acciones{{margin:12px 0;text-align:center}}@media print{{.acciones{{display:none}}}}</style></head>
     <body>{reimpresion}<h1>PRESUPUESTO</h1><p class='centro'><b>{escape(vista.numero_completo or "")}</b></p>
     <p class='centro'>DOCUMENTO INTERNO - NO VALIDO COMO FACTURA</p><hr>
     <p>Fecha: {vista.fecha_realizacion.astimezone().strftime("%d/%m/%Y %H:%M")}</p>
     <p>Caja: {escape(vista.caja_codigo or "")}</p><p>Cajero: {escape(cajero.nombre_usuario if cajero else "")}</p><p>Cliente: {escape(vista.cliente_nombre)}</p>
     <table><thead><tr><th>Articulo</th><th class='num'>Cant.</th><th class='num'>Precio</th><th class='num'>Total</th></tr></thead><tbody>{filas}</tbody></table>
     <p class='total'>TOTAL ${vista.total_bruto:.2f}</p>{pagos_html}<p class='num'>Saldo pendiente: ${vista.saldo_pendiente:.2f}</p>
-    <div class='acciones'><button onclick='window.print()'>Imprimir</button></div></body></html>"""
+    <div class='fin-ticket'></div><div class='acciones'><button onclick='window.print()'>Imprimir</button></div>{impresion_automatica}</body></html>"""
     return HTMLResponse(html)
 
 
@@ -2929,6 +3267,7 @@ async def crear_factura_compra(
                 sesion, movimiento, articulo, almacen.id, linea.cantidad_base
             )
     factura.total_bruto = importe_dos_decimales(total)
+    factura.saldo_pendiente = factura.total_bruto
     if ingreso:
         ingreso.estado = "FACTURADO"
     await sesion.commit()
@@ -2984,30 +3323,7 @@ async def listar_articulos(
             )
             .exists()
         )
-    if buscar:
-        for termino in buscar.split():
-            patron = f"%{termino}%"
-            consulta = consulta.where(
-                or_(
-                    Articulo.codigo.ilike(patron),
-                    Articulo.descripcion.ilike(patron),
-                    Articulo.descripcion_ampliada.ilike(patron),
-                    select(CodigoBarraArticulo.id)
-                    .where(
-                        CodigoBarraArticulo.articulo_id == Articulo.id,
-                        CodigoBarraArticulo.codigo.ilike(patron),
-                        CodigoBarraArticulo.activo.is_(True),
-                    )
-                    .exists(),
-                    select(ArticuloProveedor.id)
-                    .where(
-                        ArticuloProveedor.articulo_id == Articulo.id,
-                        ArticuloProveedor.codigo_proveedor.ilike(patron),
-                        ArticuloProveedor.activo.is_(True),
-                    )
-                    .exists(),
-                )
-            )
+    consulta = aplicar_busqueda_articulos(consulta, buscar, proveedor_id)
     articulos = list(await sesion.scalars(consulta))
     return [await construir_resumen(articulo, sesion) for articulo in articulos]
 
@@ -3019,7 +3335,9 @@ async def listar_articulos(
     dependencies=[Depends(requerir_permiso("datos_maestros.gestionar"))],
 )
 async def crear_articulo(
-    datos: ArticuloCrear, sesion: AsyncSession = Depends(obtener_sesion)
+    datos: ArticuloCrear,
+    usuario: Usuario = Depends(obtener_usuario_actual),
+    sesion: AsyncSession = Depends(obtener_sesion),
 ) -> ArticuloResumen:
     unidad = await sesion.get(UnidadMedida, datos.unidad_base_id)
     if unidad is None or not unidad.activa:
@@ -3035,6 +3353,18 @@ async def crear_articulo(
     valores = datos.model_dump()
     codigo_alternativo = valores.pop("codigo_alternativo")
     clasificador_ids = set(valores.pop("clasificador_ids"))
+    valores.pop("stock_inicial")
+    almacenes_stock = {linea.almacen_id for linea in datos.stock_inicial}
+    if almacenes_stock:
+        almacenes_validos = set(
+            await sesion.scalars(
+                select(Almacen.id).where(Almacen.id.in_(almacenes_stock), Almacen.activo.is_(True))
+            )
+        )
+        if almacenes_validos != almacenes_stock:
+            raise HTTPException(
+                status_code=400, detail="Almacen de stock inicial inexistente o inactivo"
+            )
     if clasificador_ids:
         encontrados = set(
             await sesion.scalars(
@@ -3072,6 +3402,21 @@ async def crear_articulo(
     )
     almacenes = list(await sesion.scalars(select(Almacen.id).where(Almacen.activo.is_(True))))
     sesion.add_all([StockArticuloAlmacen(articulo_id=articulo.id, almacen_id=i) for i in almacenes])
+    await sesion.flush()
+    lineas_stock = [linea for linea in datos.stock_inicial if linea.cantidad > 0]
+    if lineas_stock:
+        movimiento = await nuevo_movimiento(
+            sesion,
+            usuario,
+            "STOCK_INICIAL",
+            f"STOCK INICIAL DEL ARTICULO {codigo}",
+        )
+        movimiento.documento_tipo = "ALTA_ARTICULO"
+        movimiento.documento_numero = codigo
+        for linea in lineas_stock:
+            await aplicar_impacto_stock(
+                sesion, movimiento, articulo, linea.almacen_id, linea.cantidad
+            )
     await sesion.commit()
     await sesion.refresh(articulo)
     return await construir_resumen(articulo, sesion)
@@ -3216,6 +3561,7 @@ async def actualizar_articulo(
     valores = datos.model_dump()
     valores.pop("codigo_alternativo")
     clasificador_ids = set(valores.pop("clasificador_ids"))
+    valores.pop("stock_inicial")
     if not valores["habilitado"]:
         valores["habilitado_venta"] = False
         valores["habilitado_compra"] = False

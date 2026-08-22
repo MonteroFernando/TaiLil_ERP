@@ -1,14 +1,30 @@
-# Cuenta corriente de ventas
+# Cuenta corriente de clientes
 
-La cuenta corriente se configura dentro de la ficha de un socio que tenga rol **Cliente**. Puede completarse durante el alta integral o modificarse posteriormente por un usuario autorizado.
+La cuenta corriente se configura en la ficha de un socio con rol **Cliente**. Requiere `ventas.cuenta_corriente.configurar`; la consulta y operacion financiera se realizan desde Tesoreria con sus permisos propios.
 
-## Condiciones
+## Condiciones de credito
 
-- **Activa/Inactiva:** determina si el cliente puede operar con cuenta corriente.
-- **Limite maximo de deuda:** saldo total financiado que el cliente nunca puede superar.
-- **Limite por temporalidad:** credito nuevo permitido dentro de un periodo diario, semanal o mensual. Nunca puede superar el limite maximo de deuda.
-- **Dias maximos de deuda:** antiguedad permitida para la deuda impaga.
+- **Activa:** autoriza nuevas ventas financiadas.
+- **Limite maximo de deuda:** deuda total permitida.
+- **Limite por periodo:** consumo nuevo admitido por dia, semana o mes; nunca supera el limite total.
+- **Dias maximos de deuda:** antiguedad tolerada para el documento impago mas antiguo.
 
-Cuando se implemente el flujo de comprobantes y pagos, el sistema tomara la fecha de la deuda impaga mas antigua. Si supera los dias configurados, bloqueara automaticamente nuevas operaciones a cuenta corriente. El bloqueo no modifica ni elimina la deuda.
+La deuda actual es la suma de los saldos pendientes de ventas confirmadas. El credito disponible es el menor entre el remanente total y el remanente del periodo. Si la cuenta esta inactiva o existe deuda vencida, el credito autorizado disponible es cero; la deuda y el historial no se modifican.
 
-La configuracion requiere el permiso independiente `ventas.cuenta_corriente.configurar`. Los administradores poseen esta facultad y pueden otorgarla a usuarios o perfiles autorizados.
+## Saldo a favor y disponible total
+
+El saldo a favor es la suma de cobros confirmados menos sus conciliaciones activas. Es un anticipo ya recibido, no una ampliacion del limite de credito. Por eso se mantiene utilizable aunque la cuenta este inactiva o tenga deuda vencida.
+
+Las notas de credito cancelan primero el saldo de la venta original y cualquier excedente aumenta el saldo a favor disponible.
+
+```text
+disponible total = saldo a favor + credito autorizado disponible
+```
+
+El POS muestra siempre deuda, saldo a favor, credito autorizado y disponible total al seleccionar el cliente. Al confirmar, aplica automaticamente los cobros antiguos sin imputar a la nueva venta. Para usar credito, el operador debe elegir expresamente **CUENTA CORRIENTE** e indicar el remanente completo; pagar cero o dejar una diferencia ya no genera deuda automaticamente. El ticket identifica lo aplicado.
+
+## Conciliacion
+
+Un cobro puede conciliarse con varias ventas y una venta puede recibir varios cobros. Es posible conciliar al registrar el cobro o posteriormente desde **Tesoreria → Cuentas corrientes → Historial y conciliacion**. Una anulacion exige motivo y conserva toda la auditoria.
+
+Para el procedimiento completo consultar [Tesoreria](tesoreria.md).

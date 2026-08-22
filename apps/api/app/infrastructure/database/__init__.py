@@ -18,6 +18,8 @@ from app.modules.articulos.infrastructure.models import (
     ListaPrecio,
     MovimientoStock,
     MovimientoStockDetalle,
+    NotaCredito,
+    NotaCreditoDetalle,
     PrecioArticuloBase,
     PrecioArticuloLista,
     PuntoVenta,
@@ -45,6 +47,16 @@ from app.modules.usuarios.infrastructure.models import (
     UsuarioPerfil,
     UsuarioPermiso,
 )
+from app.modules.tesoreria.infrastructure.models import (
+    ArqueoCaja,
+    ArqueoCajaDetalle,
+    CierreCaja,
+    CierreCajaMedio,
+    ImputacionPagoFactura,
+    MovimientoCaja,
+    PagoDocumento,
+    PagoMedioPago,
+)
 
 __all__ = [
     "AlicuotaIva",
@@ -70,6 +82,8 @@ __all__ = [
     "InventarioStockDetalle",
     "MovimientoStock",
     "MovimientoStockDetalle",
+    "NotaCredito",
+    "NotaCreditoDetalle",
     "ListaPrecio",
     "PrecioArticuloBase",
     "PrecioArticuloLista",
@@ -88,4 +102,12 @@ __all__ = [
     "Socio",
     "StockArticuloAlmacen",
     "UnidadMedida",
+    "ArqueoCaja",
+    "ArqueoCajaDetalle",
+    "CierreCaja",
+    "CierreCajaMedio",
+    "ImputacionPagoFactura",
+    "MovimientoCaja",
+    "PagoDocumento",
+    "PagoMedioPago",
 ]

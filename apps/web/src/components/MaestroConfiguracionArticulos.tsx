@@ -1,4 +1,6 @@
 "use client";
+
+import { apiFetch } from "@/api";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 const apiUrl =
   process.env.NEXT_PUBLIC_API_URL ?? "/api/v1";
@@ -31,7 +33,7 @@ export default function MaestroConfiguracionArticulos({
   const [predeterminado, setPredeterminado] = useState(false);
   const [mensaje, setMensaje] = useState("");
   const cargar = useCallback(async () => {
-    const r = await fetch(`${apiUrl}/articulos/${modo}`, {
+    const r = await apiFetch(`${apiUrl}/articulos/${modo}`, {
       credentials: "include",
     });
     if (r.ok) setLista(await r.json());
@@ -77,7 +79,7 @@ export default function MaestroConfiguracionArticulos({
           ubicacion: ubicacion || null,
           ...(actual ? { activo, es_predeterminado: predeterminado } : {}),
         };
-    const r = await fetch(
+    const r = await apiFetch(
       `${apiUrl}/articulos/${modo}${actual ? `/${actual.id}` : ""}`,
       {
         method: actual ? "PUT" : "POST",
@@ -95,7 +97,7 @@ export default function MaestroConfiguracionArticulos({
     setMensaje(actual ? "Registro actualizado" : "Registro creado");
     await cargar();
   }
-  async function eliminar(x:Registro){if(!window.confirm(`¿Eliminar ${esClasificador?x.nombre:x.descripcion}?`))return;const r=await fetch(`${apiUrl}/articulos/${modo}/${x.id}`,{method:"DELETE",credentials:"include"});if(!r.ok){const d=await r.json().catch(()=>null);setMensaje(d?.detail??"No se pudo eliminar");return}setMensaje("Registro eliminado");await cargar()}
+  async function eliminar(x:Registro){if(!window.confirm(`¿Eliminar ${esClasificador?x.nombre:x.descripcion}?`))return;const r=await apiFetch(`${apiUrl}/articulos/${modo}/${x.id}`,{method:"DELETE",credentials:"include"});if(!r.ok){const d=await r.json().catch(()=>null);setMensaje(d?.detail??"No se pudo eliminar");return}setMensaje("Registro eliminado");await cargar()}
   const titulo = esClasificador ? "Clasificadores de articulos" : "Almacenes";
   return (
     <main className="p-6 sm:p-9">

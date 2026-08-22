@@ -1,4 +1,6 @@
 "use client";
+
+import { apiFetch } from "@/api";
 /* eslint-disable @next/next/no-html-link-for-pages */
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -95,7 +97,7 @@ export default function MaestroSociosNegocio({
   const [temporalidad, setTemporalidad] = useState("mensual");
   const [diasDeuda, setDiasDeuda] = useState("0");
   const cargarLista = useCallback(async () => {
-    const r = await fetch(
+    const r = await apiFetch(
       `${apiUrl}/articulos/socios?rol=${filtro}&buscar=${encodeURIComponent(buscar)}`,
       { credentials: "include" },
     );
@@ -108,7 +110,7 @@ export default function MaestroSociosNegocio({
   const cargarDomicilios = useCallback(async (id: string, roles: Rol[]) => {
     const pares = await Promise.all(
       roles.map(async (rol) => {
-        const r = await fetch(
+        const r = await apiFetch(
           `${apiUrl}/articulos/socios/${id}/domicilios?rol=${rol}`,
           { credentials: "include" },
         );
@@ -138,7 +140,7 @@ export default function MaestroSociosNegocio({
       if (x.es_proveedor) roles.push("proveedor");
       void cargarDomicilios(x.id, roles);
       if (x.es_cliente)
-        void fetch(
+        void apiFetch(
           `${apiUrl}/articulos/socios/${x.id}/cuenta-corriente-ventas`,
           { credentials: "include" },
         ).then(async (r) => {
@@ -157,7 +159,7 @@ export default function MaestroSociosNegocio({
   useEffect(() => {
     if (!registroId) return;
     async function cargar() {
-      const r = await fetch(`${apiUrl}/articulos/socios/${registroId}`, {
+      const r = await apiFetch(`${apiUrl}/articulos/socios/${registroId}`, {
         credentials: "include",
       });
       if (r.ok) completar(await r.json());
@@ -207,7 +209,7 @@ export default function MaestroSociosNegocio({
                 : null,
           }),
     };
-    const r = await fetch(
+    const r = await apiFetch(
       `${apiUrl}/articulos/socios${socio ? `/${socio.id}` : ""}`,
       {
         method: socio ? "PUT" : "POST",
@@ -231,7 +233,7 @@ export default function MaestroSociosNegocio({
   }
   async function eliminarSocio(registro: Socio) {
     if (!window.confirm(`¿Eliminar el socio ${registro.razon_social}?`)) return;
-    const r = await fetch(`${apiUrl}/articulos/socios/${registro.id}`, {
+    const r = await apiFetch(`${apiUrl}/articulos/socios/${registro.id}`, {
       method: "DELETE",
       credentials: "include",
     });
@@ -700,7 +702,7 @@ function CuentaCorrienteVentas({
 }) {
   async function guardar() {
     if (!socio) return;
-    const r = await fetch(
+    const r = await apiFetch(
       `${apiUrl}/articulos/socios/${socio.id}/cuenta-corriente-ventas`,
       {
         method: "PUT",
@@ -980,7 +982,7 @@ function Direcciones({
   const [provincia, setProvincia] = useState("");
   async function agregar(e: FormEvent) {
     e.preventDefault();
-    const r = await fetch(`${apiUrl}/articulos/socios/${socio.id}/domicilios`, {
+    const r = await apiFetch(`${apiUrl}/articulos/socios/${socio.id}/domicilios`, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
@@ -1012,7 +1014,7 @@ function Direcciones({
   }
   async function eliminar(d: Domicilio) {
     if (!confirm(`¿Eliminar ${d.calle} ${d.numero}?`)) return;
-    const r = await fetch(
+    const r = await apiFetch(
       `${apiUrl}/articulos/socios/${socio.id}/domicilios/${d.id}`,
       { method: "DELETE", credentials: "include" },
     );
@@ -1079,7 +1081,7 @@ function Agrupacion({
       x.id !== socio.id && (rol === "cliente" ? x.es_cliente : x.es_proveedor),
   );
   async function guardar() {
-    const r = await fetch(
+    const r = await apiFetch(
       `${apiUrl}/articulos/socios/${socio.id}/cuenta-padre`,
       {
         method: "PUT",

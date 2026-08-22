@@ -35,6 +35,8 @@ Un articulo puede estar habilitado en general y, de manera independiente, para:
 
 Deshabilitarlo en general impide nuevas operaciones, pero nunca elimina su historial.
 
+Al crear un producto habilitado para inventario se puede cargar el **stock inicial** de uno o varios almacenes. Cada cantidad positiva genera un movimiento historico `STOCK_INICIAL`; por eso el valor no se modifica luego desde la ficha. Los cambios posteriores se realizan mediante ajustes, transferencias o inventarios fisicos.
+
 ## Alicuota de IVA
 
 Cada articulo conserva su alicuota de IVA. Las opciones iniciales son `0%`, `10,5%`, `21%` y `27%`; los articulos existentes quedan asignados a `21%` y el valor puede modificarse desde su ficha.
@@ -102,6 +104,6 @@ El codigo del proveedor no reemplaza el codigo interno de TaiLil.
 - Una presentacion vinculada a un codigo de barras no puede eliminarse hasta quitar o modificar ese codigo.
 - El codigo interno de un proveedor puede modificarse y el proveedor puede desvincularse del articulo.
 
-## Fuera de esta etapa
+## Informacion relacionada
 
-Precios, listas, ofertas, impuestos, costos, lotes y reglas de reposicion se incorporaran en iteraciones posteriores sin modificar la identidad del articulo.
+Precios de venta, costo interno COMPRAS, reglas por cantidad, alicuotas, proveedores y stock se administran en sus modulos, pero siempre referencian el mismo articulo. Los cambios actuales no reescriben precios, costos ni movimientos historicos de documentos ya confirmados.
