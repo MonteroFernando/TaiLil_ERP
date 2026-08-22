@@ -1,5 +1,11 @@
 # Clasificadores, almacenes y stock
 
+## Formato de cantidades
+
+Las cantidades se muestran con un máximo de tres decimales y sin ceros finales innecesarios: `12`, `12,5` o `12,345`. A partir de mil unidades se aplica el separador local, por ejemplo `12.345,678`. Los campos operativos de stock, inventario, compras, códigos de barras y reglas por cantidad admiten pasos de `0,001`.
+
+Los importes se muestran como moneda argentina con separador de miles y dos decimales. Este formato es visual: los cálculos y registros históricos continúan utilizando valores numéricos, no textos formateados.
+
 ## Clasificacion de articulos
 
 Los articulos pueden vincularse con varios clasificadores. Cada clasificador posee **tipo**, **nombre**, un clasificador padre opcional y estado. El tipo define el criterio (por ejemplo, `RUBRO`) y el nombre define su valor (por ejemplo, `FIAMBRES`). No solicita codigo: las relaciones utilizan el identificador interno de la base.

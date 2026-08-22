@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 from uuid import UUID
@@ -501,6 +501,7 @@ class PrecioVentaConsultaVista(BaseModel):
     articulo_codigo: str
     articulo_descripcion: str
     precio_venta_bruto: Decimal
+    precio_anterior_bruto: Decimal | None = None
 
 
 class ReglaListaPrecioCrear(BaseModel):
@@ -577,6 +578,7 @@ class CajaVentaVista(CajaVentaCrear):
 class AperturaCajaCrear(BaseModel):
     caja_id: UUID
     efectivo_inicial: Decimal = Field(ge=0, decimal_places=2)
+    periodo_operativo: date | None = None
 
 
 class AperturaCajaVista(BaseModel):
@@ -589,6 +591,7 @@ class AperturaCajaVista(BaseModel):
     usuario_id: UUID
     usuario_nombre: str
     efectivo_inicial: Decimal
+    periodo_operativo: date
     estado: str
     fecha_apertura: datetime
     fecha_cierre: datetime | None
@@ -695,3 +698,27 @@ class DocumentoCompraVista(BaseModel):
     politica_costo: str | None = None
     total_bruto: Decimal | None = None
     lineas: list[CompraLineaVista]
+
+
+class RotacionCompraArticuloVista(BaseModel):
+    articulo_id: UUID
+    codigo: str
+    descripcion: str
+    es_pesable: bool
+    dias_con_stock: int
+    cantidad_vendida: Decimal
+    promedio_diario: Decimal
+    disponible: Decimal
+    cantidad_pedida: Decimal
+    necesidad_proyectada: Decimal
+    sugerencia_compra: Decimal
+
+
+class RotacionComprasVista(BaseModel):
+    fecha_desde: date
+    fecha_hasta: date
+    dias_analisis: int
+    dias_proyeccion: int
+    dias_trabajados: int
+    almacen_id: UUID | None
+    articulos: list[RotacionCompraArticuloVista]

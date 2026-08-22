@@ -1,9 +1,10 @@
 # ruff: noqa: E501
-from datetime import UTC, datetime, timedelta
-from decimal import ROUND_HALF_UP, Decimal
+from datetime import UTC, date, datetime, timedelta
+from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal
 from html import escape
 from typing import Annotated
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import HTMLResponse
@@ -77,6 +78,8 @@ from app.modules.articulos.api.schemas import (
     PuntoVentaVista,
     ReglaListaPrecioCrear,
     ReglaListaPrecioVista,
+    RotacionCompraArticuloVista,
+    RotacionComprasVista,
     SocioNegocioActualizar,
     SocioNegocioAltaCompleta,
     StockArticuloVista,
@@ -121,7 +124,11 @@ from app.modules.articulos.infrastructure.models import (
     VentaDocumento,
     VentaDocumentoDetalle,
 )
-from app.modules.usuarios.api.dependencias import obtener_usuario_actual, requerir_permiso
+from app.modules.usuarios.api.dependencias import (
+    obtener_usuario_actual,
+    requerir_alguno_de,
+    requerir_permiso,
+)
 from app.modules.usuarios.application.permisos import obtener_codigos_permisos
 from app.modules.usuarios.infrastructure.models import Usuario
 
@@ -638,7 +645,7 @@ async def obtener_cliente(
 @router.get(
     "/socios",
     response_model=list[TerceroVista],
-    dependencies=[Depends(requerir_permiso("datos_maestros.ver"))],
+    dependencies=[Depends(requerir_alguno_de("datos_maestros.ver", "ventas.caja.operar"))],
 )
 async def listar_socios(
     buscar: str | None = Query(default=None, max_length=100),
@@ -803,7 +810,7 @@ async def eliminar_socio_negocio(
 @router.get(
     "/socios/{socio_id}/cuenta-corriente-ventas",
     response_model=CuentaCorrienteVentasVista,
-    dependencies=[Depends(requerir_permiso("ventas.ver"))],
+    dependencies=[Depends(requerir_alguno_de("ventas.ver", "ventas.caja.operar"))],
 )
 async def obtener_cuenta_corriente_ventas(
     socio_id: UUID, sesion: AsyncSession = Depends(obtener_sesion)
@@ -1047,7 +1054,7 @@ async def eliminar_clasificador(
 @router.get(
     "/almacenes",
     response_model=list[AlmacenVista],
-    dependencies=[Depends(requerir_permiso("inventario.ver"))],
+    dependencies=[Depends(requerir_alguno_de("inventario.ver", "ventas.caja.operar"))],
 )
 async def listar_almacenes(sesion: AsyncSession = Depends(obtener_sesion)) -> list[Almacen]:
     return list(await sesion.scalars(select(Almacen).order_by(Almacen.codigo)))
@@ -1712,7 +1719,7 @@ async def precio_articulo_lista_vista(
 @router.get(
     "/precios/consulta-venta/{articulo_id}",
     response_model=list[PrecioVentaConsultaVista],
-    dependencies=[Depends(requerir_permiso("ventas.ver"))],
+    dependencies=[Depends(requerir_alguno_de("ventas.ver", "ventas.caja.operar"))],
 )
 async def consultar_precios_venta(
     articulo_id: UUID,
@@ -1982,19 +1989,39 @@ async def resolver_lista_venta(
 
 @router.get(
     "/pos/precio",
-    response_model=PrecioArticuloListaVista,
-    dependencies=[Depends(requerir_permiso("ventas.ver"))],
+    response_model=PrecioVentaConsultaVista,
+    dependencies=[Depends(requerir_alguno_de("ventas.ver", "ventas.caja.operar"))],
 )
 async def consultar_precio_pos(
     articulo_id: UUID,
     cantidad_base: Annotated[Decimal, Query(gt=0)],
     sesion: AsyncSession = Depends(obtener_sesion),
-) -> PrecioArticuloListaVista:
+) -> PrecioVentaConsultaVista:
     articulo = await obtener_articulo_o_404(articulo_id, sesion)
     if not articulo.habilitado or not articulo.habilitado_venta:
         raise HTTPException(status_code=400, detail="Articulo no habilitado para venta")
     lista = await resolver_lista_venta(articulo.id, cantidad_base, sesion)
-    return await precio_articulo_lista_vista(articulo, lista, sesion)
+    precio = await precio_articulo_lista_vista(articulo, lista, sesion)
+    precio_anterior = None
+    if lista.nombre != "GENERAL":
+        general = await sesion.scalar(
+            select(ListaPrecio).where(
+                ListaPrecio.nombre == "GENERAL", ListaPrecio.activa.is_(True)
+            )
+        )
+        if general:
+            precio_general = await precio_articulo_lista_vista(articulo, general, sesion)
+            if precio_general.precio_venta_bruto > precio.precio_venta_bruto:
+                precio_anterior = precio_general.precio_venta_bruto
+    return PrecioVentaConsultaVista(
+        lista_id=lista.id,
+        lista_nombre=lista.nombre,
+        articulo_id=articulo.id,
+        articulo_codigo=articulo.codigo,
+        articulo_descripcion=articulo.descripcion,
+        precio_venta_bruto=precio.precio_venta_bruto,
+        precio_anterior_bruto=precio_anterior,
+    )
 
 
 @router.post(
@@ -2057,6 +2084,7 @@ def apertura_caja_vista(
         usuario_id=usuario.id,
         usuario_nombre=usuario.nombre_usuario,
         efectivo_inicial=apertura.efectivo_inicial,
+        periodo_operativo=apertura.periodo_operativo,
         estado=apertura.estado,
         fecha_apertura=apertura.fecha_apertura,
         fecha_cierre=apertura.fecha_cierre,
@@ -2086,7 +2114,7 @@ async def obtener_apertura_operativa(
 @router.get(
     "/pos/configuracion/puntos-venta",
     response_model=list[PuntoVentaVista],
-    dependencies=[Depends(requerir_permiso("ventas.ver"))],
+    dependencies=[Depends(requerir_alguno_de("ventas.ver", "ventas.caja.operar"))],
 )
 async def listar_puntos_venta(
     sesion: AsyncSession = Depends(obtener_sesion),
@@ -2190,7 +2218,7 @@ async def eliminar_punto_venta(
 @router.get(
     "/pos/configuracion/cajas",
     response_model=list[CajaVentaVista],
-    dependencies=[Depends(requerir_permiso("ventas.ver"))],
+    dependencies=[Depends(requerir_alguno_de("ventas.ver", "ventas.caja.operar"))],
 )
 async def listar_cajas_venta(
     punto_venta_id: UUID | None = None,
@@ -2286,7 +2314,7 @@ async def eliminar_caja_venta(
 @router.get(
     "/pos/cajas/abiertas",
     response_model=list[AperturaCajaVista],
-    dependencies=[Depends(requerir_permiso("ventas.ver"))],
+    dependencies=[Depends(requerir_alguno_de("ventas.ver", "ventas.caja.operar"))],
 )
 async def listar_aperturas_caja(
     usuario: Usuario = Depends(obtener_usuario_actual),
@@ -2310,7 +2338,7 @@ async def listar_aperturas_caja(
     "/pos/cajas/abrir",
     response_model=AperturaCajaVista,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(requerir_permiso("ventas.gestionar"))],
+    dependencies=[Depends(requerir_alguno_de("ventas.gestionar", "ventas.caja.operar"))],
 )
 async def abrir_caja(
     datos: AperturaCajaCrear,
@@ -2323,6 +2351,10 @@ async def abrir_caja(
     punto = await sesion.get(PuntoVenta, caja.punto_venta_id)
     if punto is None or not punto.activo:
         raise HTTPException(status_code=400, detail="Punto de venta inactivo")
+    hoy_operativo = datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")).date()
+    periodo_operativo = datos.periodo_operativo or hoy_operativo
+    if periodo_operativo > hoy_operativo:
+        raise HTTPException(status_code=400, detail="El periodo operativo no puede ser futuro")
     ocupada = await sesion.scalar(
         select(AperturaCaja).where(
             AperturaCaja.estado == "ABIERTA",
@@ -2336,6 +2368,7 @@ async def abrir_caja(
         usuario_id=usuario.id,
         estado="ABIERTA",
         efectivo_inicial=datos.efectivo_inicial,
+        periodo_operativo=periodo_operativo,
     )
     sesion.add(apertura)
     await sesion.commit()
@@ -2465,7 +2498,7 @@ async def validar_credito_cliente(
     "/pos/borradores",
     response_model=PosVentaVista,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(requerir_permiso("ventas.gestionar"))],
+    dependencies=[Depends(requerir_alguno_de("ventas.gestionar", "ventas.caja.operar"))],
 )
 async def guardar_borrador_pos(
     datos: PosVentaCrear,
@@ -2561,7 +2594,7 @@ async def guardar_borrador_pos(
 @router.get(
     "/pos/borradores",
     response_model=list[PosVentaVista],
-    dependencies=[Depends(requerir_permiso("ventas.ver"))],
+    dependencies=[Depends(requerir_alguno_de("ventas.ver", "ventas.caja.operar"))],
 )
 async def listar_borradores_pos(
     apertura_caja_id: UUID | None = None,
@@ -2580,7 +2613,7 @@ async def listar_borradores_pos(
 @router.delete(
     "/pos/borradores/{borrador_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(requerir_permiso("ventas.gestionar"))],
+    dependencies=[Depends(requerir_alguno_de("ventas.gestionar", "ventas.caja.operar"))],
 )
 async def eliminar_borrador_pos(
     borrador_id: UUID,
@@ -2604,7 +2637,7 @@ async def eliminar_borrador_pos(
     "/pos/ventas",
     response_model=PosVentaVista,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(requerir_permiso("ventas.gestionar"))],
+    dependencies=[Depends(requerir_alguno_de("ventas.gestionar", "ventas.caja.operar"))],
 )
 async def crear_venta_pos(
     datos: PosVentaCrear,
@@ -2870,7 +2903,7 @@ async def crear_venta_pos(
 @router.get(
     "/pos/ventas",
     response_model=list[PosVentaVista],
-    dependencies=[Depends(requerir_permiso("ventas.ver"))],
+    dependencies=[Depends(requerir_alguno_de("ventas.ver", "ventas.caja.operar"))],
 )
 async def listar_ventas_pos(
     cliente_id: UUID | None = None,
@@ -2891,7 +2924,7 @@ async def listar_ventas_pos(
 @router.get(
     "/pos/ventas/{venta_id}/imprimir",
     response_class=HTMLResponse,
-    dependencies=[Depends(requerir_permiso("ventas.ver"))],
+    dependencies=[Depends(requerir_alguno_de("ventas.ver", "ventas.caja.operar"))],
 )
 async def imprimir_venta_pos(
     venta_id: UUID,
@@ -2979,7 +3012,7 @@ async def imprimir_venta_pos(
 @router.get(
     "/pos/ventas/{venta_id}",
     response_model=PosVentaVista,
-    dependencies=[Depends(requerir_permiso("ventas.ver"))],
+    dependencies=[Depends(requerir_alguno_de("ventas.ver", "ventas.caja.operar"))],
 )
 async def obtener_venta_pos(
     venta_id: UUID, sesion: AsyncSession = Depends(obtener_sesion)
@@ -3290,9 +3323,212 @@ async def listar_facturas_compra(
 
 
 @router.get(
+    "/compras/rotacion",
+    response_model=RotacionComprasVista,
+    dependencies=[Depends(requerir_permiso("compras.ver"))],
+)
+async def analizar_rotacion_compras(
+    dias_analisis: int = Query(30, ge=1, le=365),
+    dias_proyeccion: int = Query(15, ge=1, le=365),
+    almacen_id: UUID | None = None,
+    sesion: AsyncSession = Depends(obtener_sesion),
+) -> RotacionComprasVista:
+    """Calcula demanda diaria solo sobre jornadas trabajadas en las que hubo stock."""
+    zona_local = ZoneInfo("America/Argentina/Buenos_Aires")
+    ahora_local = datetime.now(zona_local)
+    fecha_desde = ahora_local.date() - timedelta(days=dias_analisis - 1)
+    inicio = datetime.combine(fecha_desde, datetime.min.time(), zona_local).astimezone(UTC)
+    fin = datetime.now(UTC)
+
+    articulos = list(
+        await sesion.scalars(
+            select(Articulo)
+            .where(
+                Articulo.habilitado.is_(True),
+                Articulo.habilitado_compra.is_(True),
+                Articulo.habilitado_inventario.is_(True),
+            )
+            .order_by(Articulo.codigo)
+        )
+    )
+    ids_articulos = {articulo.id for articulo in articulos}
+
+    filtro_ventas = [
+        VentaDocumento.estado == "CONFIRMADO",
+        VentaDocumento.fecha_realizacion >= inicio,
+        VentaDocumento.fecha_realizacion <= fin,
+    ]
+    if almacen_id:
+        filtro_ventas.append(VentaDocumento.almacen_id == almacen_id)
+    fechas_ventas = list(
+        await sesion.scalars(select(VentaDocumento.fecha_realizacion).where(*filtro_ventas))
+    )
+
+    def fecha_operativa(valor: datetime) -> date:
+        if valor.tzinfo is None:
+            valor = valor.replace(tzinfo=UTC)
+        return valor.astimezone(zona_local).date()
+
+    dias_trabajados = {fecha_operativa(fecha) for fecha in fechas_ventas}
+    ventas_por_articulo: dict[UUID, Decimal] = {}
+    ventas_por_dia: dict[date, dict[UUID, Decimal]] = {}
+    filas_venta = (
+        await sesion.execute(
+            select(
+                VentaDocumento.fecha_realizacion,
+                VentaDocumentoDetalle.articulo_id,
+                VentaDocumentoDetalle.cantidad_base,
+            )
+            .join(VentaDocumentoDetalle, VentaDocumentoDetalle.venta_id == VentaDocumento.id)
+            .where(*filtro_ventas, VentaDocumentoDetalle.articulo_id.in_(ids_articulos))
+        )
+    ).all() if ids_articulos else []
+    for fecha, articulo_id, cantidad in filas_venta:
+        dia = fecha_operativa(fecha)
+        ventas_por_articulo[articulo_id] = (
+            ventas_por_articulo.get(articulo_id, Decimal("0")) + cantidad
+        )
+        ventas_dia = ventas_por_dia.setdefault(dia, {})
+        ventas_dia[articulo_id] = ventas_dia.get(articulo_id, Decimal("0")) + cantidad
+
+    consulta_stock = select(
+        StockArticuloAlmacen.articulo_id,
+        StockArticuloAlmacen.almacen_id,
+        StockArticuloAlmacen.cantidad_fisica,
+        StockArticuloAlmacen.cantidad_pedida,
+        StockArticuloAlmacen.cantidad_reservada,
+    ).where(StockArticuloAlmacen.articulo_id.in_(ids_articulos))
+    if almacen_id:
+        consulta_stock = consulta_stock.where(StockArticuloAlmacen.almacen_id == almacen_id)
+    filas_stock = (await sesion.execute(consulta_stock)).all() if ids_articulos else []
+    saldos: dict[tuple[UUID, UUID], Decimal] = {}
+    disponible: dict[UUID, Decimal] = {}
+    pedido: dict[UUID, Decimal] = {}
+    for articulo_id, deposito_id, fisico, cantidad_pedida, reservada in filas_stock:
+        saldos[(articulo_id, deposito_id)] = fisico
+        disponible[articulo_id] = disponible.get(articulo_id, Decimal("0")) + max(
+            Decimal("0"), fisico - reservada
+        )
+        pedido[articulo_id] = pedido.get(articulo_id, Decimal("0")) + cantidad_pedida
+
+    consulta_movimientos = (
+        select(
+            MovimientoStock.fecha_confirmacion,
+            MovimientoStockDetalle.articulo_id,
+            MovimientoStockDetalle.almacen_id,
+            MovimientoStockDetalle.saldo_anterior,
+            MovimientoStockDetalle.saldo_posterior,
+        )
+        .join(
+            MovimientoStockDetalle,
+            MovimientoStockDetalle.movimiento_id == MovimientoStock.id,
+        )
+        .where(
+            MovimientoStock.estado == "CONFIRMADO",
+            MovimientoStock.fecha_confirmacion >= inicio,
+            MovimientoStock.fecha_confirmacion <= fin,
+            MovimientoStockDetalle.articulo_id.in_(ids_articulos),
+        )
+        .order_by(MovimientoStock.fecha_confirmacion, MovimientoStockDetalle.id)
+    )
+    if almacen_id:
+        consulta_movimientos = consulta_movimientos.where(
+            MovimientoStockDetalle.almacen_id == almacen_id
+        )
+    movimientos = (await sesion.execute(consulta_movimientos)).all() if ids_articulos else []
+
+    # Partimos del saldo actual y deshacemos los movimientos del periodo para obtener
+    # el saldo al inicio sin exigir una foto historica adicional.
+    for _, articulo_id, deposito_id, saldo_anterior, _ in reversed(movimientos):
+        saldos[(articulo_id, deposito_id)] = saldo_anterior
+
+    movimientos_por_dia: dict[date, list[tuple[UUID, UUID, Decimal, Decimal]]] = {}
+    for fecha, articulo_id, deposito_id, saldo_anterior, saldo_posterior in movimientos:
+        movimientos_por_dia.setdefault(fecha_operativa(fecha), []).append(
+            (articulo_id, deposito_id, saldo_anterior, saldo_posterior)
+        )
+
+    dias_con_stock: dict[UUID, int] = {articulo.id: 0 for articulo in articulos}
+    saldo_total_por_articulo: dict[UUID, Decimal] = {}
+    for (articulo_id, _), cantidad in saldos.items():
+        saldo_total_por_articulo[articulo_id] = (
+            saldo_total_por_articulo.get(articulo_id, Decimal("0")) + cantidad
+        )
+    dia = fecha_desde
+    while dia <= ahora_local.date():
+        eventos = movimientos_por_dia.get(dia, [])
+        if dia in dias_trabajados:
+            positivos_evento = {
+                articulo_id
+                for articulo_id, _, anterior, posterior in eventos
+                if anterior > 0 or posterior > 0
+            }
+            vendidos_dia = set(ventas_por_dia.get(dia, {}))
+            for articulo in articulos:
+                saldo_total = saldo_total_por_articulo.get(articulo.id, Decimal("0"))
+                if saldo_total > 0 or articulo.id in positivos_evento or articulo.id in vendidos_dia:
+                    dias_con_stock[articulo.id] += 1
+        for articulo_id, deposito_id, _, saldo_posterior in eventos:
+            saldo_previo = saldos.get((articulo_id, deposito_id), Decimal("0"))
+            saldos[(articulo_id, deposito_id)] = saldo_posterior
+            saldo_total_por_articulo[articulo_id] = (
+                saldo_total_por_articulo.get(articulo_id, Decimal("0"))
+                - saldo_previo
+                + saldo_posterior
+            )
+        dia += timedelta(days=1)
+
+    resultado: list[RotacionCompraArticuloVista] = []
+    tres_decimales = Decimal("0.001")
+    for articulo in articulos:
+        vendida = ventas_por_articulo.get(articulo.id, Decimal("0"))
+        dias_stock = dias_con_stock[articulo.id]
+        promedio = vendida / dias_stock if dias_stock else Decimal("0")
+        necesidad = promedio * dias_proyeccion
+        sugerida = max(
+            Decimal("0"),
+            necesidad
+            - disponible.get(articulo.id, Decimal("0"))
+            - pedido.get(articulo.id, Decimal("0")),
+        )
+        paso = tres_decimales if articulo.es_pesable else Decimal("1")
+        resultado.append(
+            RotacionCompraArticuloVista(
+                articulo_id=articulo.id,
+                codigo=articulo.codigo,
+                descripcion=articulo.descripcion,
+                es_pesable=articulo.es_pesable,
+                dias_con_stock=dias_stock,
+                cantidad_vendida=vendida.quantize(tres_decimales, rounding=ROUND_HALF_UP),
+                promedio_diario=promedio.quantize(tres_decimales, rounding=ROUND_HALF_UP),
+                disponible=disponible.get(articulo.id, Decimal("0")).quantize(
+                    tres_decimales, rounding=ROUND_HALF_UP
+                ),
+                cantidad_pedida=pedido.get(articulo.id, Decimal("0")).quantize(
+                    tres_decimales, rounding=ROUND_HALF_UP
+                ),
+                necesidad_proyectada=necesidad.quantize(
+                    tres_decimales, rounding=ROUND_HALF_UP
+                ),
+                sugerencia_compra=sugerida.quantize(paso, rounding=ROUND_CEILING),
+            )
+        )
+    resultado.sort(key=lambda item: (-item.promedio_diario, item.codigo))
+    return RotacionComprasVista(
+        fecha_desde=fecha_desde,
+        fecha_hasta=ahora_local.date(),
+        dias_analisis=dias_analisis,
+        dias_proyeccion=dias_proyeccion,
+        dias_trabajados=len(dias_trabajados),
+        almacen_id=almacen_id,
+        articulos=resultado,
+    )
+
+
+@router.get(
     "",
     response_model=list[ArticuloResumen],
-    dependencies=[Depends(requerir_permiso("datos_maestros.ver"))],
+    dependencies=[Depends(requerir_alguno_de("datos_maestros.ver", "ventas.caja.operar"))],
 )
 async def listar_articulos(
     buscar: str | None = Query(default=None, max_length=100),

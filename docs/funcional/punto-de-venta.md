@@ -14,6 +14,10 @@ Los administradores disponen de **Ventas → Configuracion POS** para crear punt
 
 Antes de vender, el cajero debe abrir una caja e indicar el efectivo inicial. Una caja y un usuario solamente pueden poseer una apertura activa. Si el navegador se cierra, la apertura permanece en el servidor y el mismo usuario la recupera al volver. Un administrador puede consultar y operar cualquier caja abierta; un cajero no puede utilizar la apertura de otra persona.
 
+Al abrir también se elige la **fecha operativa**. Por defecto es el dia actual y no puede ser futura. Varias aperturas y cierres pueden pertenecer a la misma fecha, lo que permite representar turnos o cajas diferentes del mismo dia. El POS muestra el periodo en su encabezado y vuelve a indicarlo antes de confirmar el cierre; las horas reales no se reemplazan ni se pierden.
+
+El usuario con perfil **CAJERO** ve solamente **Punto de venta**. Desde el encabezado puede pulsar **Cerrar caja** cuando no tiene una venta en curso. El modal muestra ventas y esperado por medio; el cajero declara lo contado para cada medio y puede explicar diferencias. No se permite cerrar mientras existan borradores: deben confirmarse o eliminarse. Al confirmar, se guarda el cierre historico y termina la apertura.
+
 La operacion se divide en documentos relacionados:
 
 - La **venta** registra los articulos, cantidades, precios brutos, IVA, cliente y almacen. Es el documento que genera la deuda.
@@ -62,7 +66,7 @@ Si se vuelve a buscar un articulo que ya se encuentra en la venta, no se crea ot
 
 ## Venta inmediata y cuenta corriente
 
-Las devoluciones totales o parciales se registran desde **Notas de credito** contra el presupuesto original. Se usan precios historicos, se controlan cantidades ya devueltas y se puede reingresar mercaderia. Ver [Notas de credito](notas-de-credito.md).
+Las devoluciones totales o parciales se registran con **Emitir N/C** dentro del POS y siempre contra el comprobante original. El modal permite devolver productos a precio historico, emitir una nota narrativa por diferencia de precio y registrar el excedente como egreso de la caja abierta. Se controlan importes y cantidades ya acreditados. Ver [Notas de credito](notas-de-credito.md).
 
 - Si los pagos cubren el total, la venta queda sin saldo pendiente.
 - El saldo a favor se puede utilizar aunque la cuenta corriente no este habilitada o su credito se encuentre bloqueado por deuda vencida.

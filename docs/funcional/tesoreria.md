@@ -9,6 +9,8 @@ Los permisos son:
 - `tesoreria.ver`: consultar cuentas, documentos, controles e historicos;
 - `tesoreria.gestionar`: registrar cobros, pagos, conciliaciones, movimientos, arqueos y cierres.
 
+El perfil **CAJERO** no recibe estos permisos ni accede al modulo completo. Su permiso acotado `ventas.caja.cerrar` muestra el control y cierre de su propia apertura directamente en el POS.
+
 ## Flujo practico de una cuenta corriente
 
 Al ingresar en **Cuentas corrientes → Clientes / cobros**, el **Listado general** muestra todos los clientes con deuda o saldo a favor. Se puede buscar por nombre, codigo o documento y filtrar por **con movimientos**, **solamente con deuda**, **solamente saldo a favor** o **todos los clientes**. La cabecera informa el total por cobrar y el total de anticipos a favor.
@@ -58,6 +60,8 @@ Para una venta que no utiliza cuenta corriente, el cobro debe quedar conciliado 
 
 En **Caja y arqueo** se selecciona una apertura activa. El control muestra ventas, cobros, pagos, ingresos y egresos de esa apertura, discriminados por medio.
 
+Cada apertura pertenece a una **fecha operativa** elegida al abrir la caja. Esa fecha representa el dia comercial y puede ser anterior al instante real de apertura, pero no futura. No es unica: se pueden abrir y cerrar varias cajas o varios turnos dentro del mismo dia operativo. La hora real de cada apertura y cierre se conserva por separado para auditoria. El selector de Caja y arqueo muestra primero el periodo para evitar operar la apertura equivocada.
+
 ### Movimientos manuales
 
 Se registra un `INGRESO` o `EGRESO`, importe, medio y concepto. Se usa para operaciones reales de caja que no nacen de una venta, cobro o pago. No debe utilizarse para corregir silenciosamente una diferencia de arqueo.
@@ -73,6 +77,8 @@ Antes de cerrar se revisa el esperado por cada medio y se declara lo contado. El
 ## Historico de cierres
 
 **Historial de cierres** permite revisar como cerro cada punto de venta y caja, con responsable, fechas, cantidad y total de ventas, esperado, declarado y diferencia. El detalle desplegable muestra el control por medio de pago. Los historicos se conservan para auditoria y no dependen de que la caja siga activa.
+
+La presentacion funciona como un calendario mensual de siete columnas, de lunes a domingo. Cada cambio de mes tiene un encabezado destacado con nombre, año y cantidad de cierres; las celdas vacias conservan la posicion real de los dias. Dentro de cada fecha aparecen todos los cierres de cajas o turnos vinculados al periodo, con resumen compacto y detalle desplegable. Cada tarjeta muestra las horas reales de apertura y cierre. **Filtrar por mes** consulta el intervalo completo del mes seleccionado y **Buscar dia operativo** realiza una busqueda exacta; ambos filtros son excluyentes para evitar resultados ambiguos. **Limpiar filtros** recupera el historial general. En pantallas angostas la cuadricula mantiene su tamaño y se desplaza horizontalmente para no volver ilegibles los importes.
 
 ## Controles recomendados
 

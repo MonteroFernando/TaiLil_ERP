@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.infrastructure.database.sesion import obtener_sesion
 from app.modules.articulos.infrastructure.models import (
     Almacen,
+    AperturaCaja,
     Articulo,
     CobroDocumento,
     CobroMedioPago,
@@ -29,6 +30,7 @@ from app.modules.articulos.infrastructure.models import (
 from app.modules.notas_credito.api.schemas import NotaCreditoCrear, NotaCreditoVista
 from app.modules.tesoreria.infrastructure.models import (
     ImputacionPagoFactura,
+    MovimientoCaja,
     PagoDocumento,
     PagoMedioPago,
 )
@@ -125,6 +127,8 @@ async def nota_vista(nota: NotaCredito, sesion: AsyncSession) -> NotaCreditoVist
         origen = await sesion.get(FacturaCompra, nota.factura_compra_id)
         origen_texto = origen.numero_proveedor if origen else "FACTURA INEXISTENTE"
         origen_id = nota.factura_compra_id
+    devolucion = await sesion.get(CobroDocumento, nota.devolucion_cobro_id)
+    movimiento_caja = await sesion.get(MovimientoCaja, nota.movimiento_caja_id)
     return NotaCreditoVista(
         id=nota.id,
         numero=nota.numero,
@@ -136,11 +140,14 @@ async def nota_vista(nota: NotaCredito, sesion: AsyncSession) -> NotaCreditoVist
         almacen_id=nota.almacen_id,
         almacen_codigo=almacen.codigo if almacen else "",
         numero_externo=nota.numero_externo,
+        modalidad=nota.modalidad,
         motivo=nota.motivo,
         afecta_stock=nota.afecta_stock,
         total_bruto=nota.total_bruto,
         estado=nota.estado,
         fecha_realizacion=nota.fecha_realizacion,
+        medio_devolucion=movimiento_caja.medio if movimiento_caja else None,
+        importe_devolucion=dinero(abs(devolucion.total)) if devolucion else CERO,
         lineas=[
             {
                 "articulo_id": str(detalle.articulo_id),
@@ -167,6 +174,18 @@ async def cantidad_acreditada(tipo: str, detalle_id: UUID, sesion: AsyncSession)
             select(func.coalesce(func.sum(NotaCreditoDetalle.cantidad_base), 0))
             .join(NotaCredito, NotaCredito.id == NotaCreditoDetalle.nota_credito_id)
             .where(campo == detalle_id, NotaCredito.estado == "CONFIRMADO")
+        )
+        or 0
+    )
+
+
+async def total_acreditado(tipo: str, documento_id: UUID, sesion: AsyncSession) -> Decimal:
+    campo = NotaCredito.venta_id if tipo == "CLIENTE" else NotaCredito.factura_compra_id
+    return Decimal(
+        await sesion.scalar(
+            select(func.coalesce(func.sum(NotaCredito.total_bruto), 0)).where(
+                campo == documento_id, NotaCredito.estado == "CONFIRMADO"
+            )
         )
         or 0
     )
@@ -200,6 +219,9 @@ async def listar_origenes(
                 )
             )
             lineas = []
+            credito_disponible = dinero(
+                documento.total_bruto - await total_acreditado(tipo, documento.id, sesion)
+            )
             for d in detalles:
                 articulo = await sesion.get(Articulo, d.articulo_id)
                 disponible = d.cantidad_base - await cantidad_acreditada(tipo, d.id, sesion)
@@ -216,7 +238,7 @@ async def listar_origenes(
                             "total_disponible": dinero(disponible * d.precio_unitario_bruto),
                         }
                     )
-            if lineas:
+            if credito_disponible > 0:
                 salida.append(
                     {
                         "id": str(documento.id),
@@ -226,6 +248,7 @@ async def listar_origenes(
                         "fecha": documento.fecha_realizacion,
                         "total": documento.total_bruto,
                         "saldo_pendiente": documento.saldo_pendiente,
+                        "credito_disponible": max(CERO, credito_disponible),
                         "lineas": lineas,
                     }
                 )
@@ -245,6 +268,9 @@ async def listar_origenes(
             )
         )
         lineas = []
+        credito_disponible = dinero(
+            documento.total_bruto - await total_acreditado(tipo, documento.id, sesion)
+        )
         for d in detalles:
             articulo = await sesion.get(Articulo, d.articulo_id)
             disponible = d.cantidad_base - await cantidad_acreditada(tipo, d.id, sesion)
@@ -271,6 +297,7 @@ async def listar_origenes(
                     "fecha": documento.fecha_realizacion,
                     "total": documento.total_bruto,
                     "saldo_pendiente": documento.saldo_pendiente,
+                    "credito_disponible": max(CERO, credito_disponible),
                     "lineas": lineas,
                 }
             )
@@ -283,7 +310,9 @@ async def crear_nota(
     usuario: Usuario = Depends(obtener_usuario_actual),
     sesion: AsyncSession = Depends(obtener_sesion),
 ) -> NotaCreditoVista:
-    permiso = "ventas.gestionar" if datos.tipo == "CLIENTE" else "compras.gestionar"
+    permiso = (
+        "ventas.notas_credito.emitir" if datos.tipo == "CLIENTE" else "compras.gestionar"
+    )
     await asegurar_permiso(usuario, permiso, sesion)
     numero = await sesion.scalar(select(Sequence("secuencia_notas_credito").next_value()))
     if datos.tipo == "CLIENTE":
@@ -332,15 +361,25 @@ async def crear_nota(
         subtotal = dinero(entrada.cantidad_base * unitario)
         total += subtotal
         preparados.append((detalle, articulo, entrada.cantidad_base, unitario, iva))
-    total = dinero(total)
+    total = dinero(datos.importe_narrativo if datos.modalidad == "NARRATIVA" else total)
     if total <= 0:
         raise HTTPException(409, "La nota de credito debe tener un importe mayor que cero")
+    disponible_documento = dinero(
+        origen.total_bruto - await total_acreditado(datos.tipo, origen.id, sesion)
+    )
+    if total > disponible_documento:
+        raise HTTPException(
+            409,
+            f"La nota supera el credito disponible del comprobante ({disponible_documento})",
+        )
     movimiento = (
         await nuevo_movimiento(sesion, usuario, f"NOTA_CREDITO_{datos.tipo}", numero, almacen_id)
         if datos.afecta_stock and any(x[1].habilitado_inventario for x in preparados)
         else None
     )
     referencia = f"NOTA DE CREDITO NC {numero:08d}"
+    devolucion_cobro_id = None
+    movimiento_caja_id = None
     if datos.tipo == "CLIENTE":
         numero_financiero = await sesion.scalar(select(Sequence("secuencia_cobros").next_value()))
         financiero = CobroDocumento(
@@ -369,6 +408,56 @@ async def crear_nota(
                 )
             )
             origen.saldo_pendiente = dinero(origen.saldo_pendiente - aplicado)
+        excedente = dinero(total - aplicado)
+        if datos.apertura_caja_id:
+            if excedente <= 0:
+                raise HTTPException(
+                    409,
+                    "La nota se aplica totalmente a deuda pendiente; "
+                    "no existe importe para devolver",
+                )
+            apertura = await sesion.scalar(
+                select(AperturaCaja)
+                .where(AperturaCaja.id == datos.apertura_caja_id)
+                .with_for_update()
+            )
+            if apertura is None or apertura.estado != "ABIERTA":
+                raise HTTPException(409, "La caja seleccionada no existe o ya fue cerrada")
+            if not usuario.es_administrador and apertura.usuario_id != usuario.id:
+                raise HTTPException(403, "Solo puede registrar la devolucion en su propia caja")
+            numero_devolucion = await sesion.scalar(
+                select(Sequence("secuencia_cobros").next_value())
+            )
+            devolucion = CobroDocumento(
+                numero=numero_devolucion,
+                cliente_id=socio_id,
+                estado="CONFIRMADO",
+                total=-excedente,
+                usuario_id=usuario.id,
+            )
+            sesion.add(devolucion)
+            await sesion.flush()
+            sesion.add(
+                CobroMedioPago(
+                    cobro_id=devolucion.id,
+                    medio="DEVOLUCION_NC",
+                    importe=-excedente,
+                    referencia=f"{datos.medio_devolucion} | {referencia}",
+                )
+            )
+            movimiento_caja = MovimientoCaja(
+                apertura_caja_id=apertura.id,
+                tipo="EGRESO",
+                medio=datos.medio_devolucion,
+                importe=excedente,
+                concepto=f"DEVOLUCION {referencia}",
+                estado="CONFIRMADO",
+                usuario_id=usuario.id,
+            )
+            sesion.add(movimiento_caja)
+            await sesion.flush()
+            devolucion_cobro_id = devolucion.id
+            movimiento_caja_id = movimiento_caja.id
         cobro_id, pago_id = financiero.id, None
     else:
         numero_financiero = await sesion.scalar(select(Sequence("secuencia_pagos").next_value()))
@@ -411,6 +500,7 @@ async def crear_nota(
         factura_compra_id=origen.id if datos.tipo == "PROVEEDOR" else None,
         almacen_id=almacen_id,
         numero_externo=datos.numero_externo,
+        modalidad=datos.modalidad,
         motivo=datos.motivo,
         afecta_stock=movimiento is not None,
         total_bruto=total,
@@ -418,6 +508,8 @@ async def crear_nota(
         movimiento_stock_id=movimiento.id if movimiento else None,
         cobro_id=cobro_id,
         pago_id=pago_id,
+        devolucion_cobro_id=devolucion_cobro_id,
+        movimiento_caja_id=movimiento_caja_id,
         usuario_id=usuario.id,
     )
     sesion.add(nota)
@@ -502,6 +594,12 @@ async def imprimir_nota(
         "</tr>"
         for x in vista.lineas
     )
+    devolucion_texto = (
+        f"<p>Devolucion por caja: {escape(vista.medio_devolucion or '')} - "
+        f"${vista.importe_devolucion:.2f}</p>"
+        if vista.importe_devolucion
+        else ""
+    )
     return HTMLResponse(
         f"""<!doctype html>
 <html><head><meta charset='utf-8'><title>NC {vista.numero:08d}</title>
@@ -515,7 +613,9 @@ td,th{{padding:8px;border-bottom:1px solid #ddd;text-align:left}}
 <p>{escape(vista.tipo)} · {escape(vista.socio_nombre)}</p>
 <p>Comprobante original: {escape(vista.documento_origen)} ·
 Almacen: {escape(vista.almacen_codigo)}</p>
-<p>Motivo: {escape(vista.motivo)} · Afecta stock: {"SI" if vista.afecta_stock else "NO"}</p>
+<p>Modalidad: {escape(vista.modalidad)} · Motivo: {escape(vista.motivo)} ·
+Afecta stock: {"SI" if vista.afecta_stock else "NO"}</p>
+{devolucion_texto}
 <table><thead><tr><th>Articulo</th><th>Cantidad</th><th>Importe</th><th>Total</th></tr>
 </thead><tbody>{filas}</tbody></table>
 <p class='total'>TOTAL ${vista.total_bruto:.2f}</p>

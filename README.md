@@ -1,6 +1,6 @@
-# TaiLil ERP
+# Morita sobre TaiLil ERP
 
-Mini ERP fullstack modular construido con FastAPI, Next.js y PostgreSQL.
+ERP modular para operación comercial, inventario, compras, ventas, cuentas corrientes, tesorería e informes, construido con FastAPI, Next.js y PostgreSQL.
 
 ## Estado actual
 
@@ -8,14 +8,20 @@ Mini ERP fullstack modular construido con FastAPI, Next.js y PostgreSQL.
 - Aplicacion web Next.js con App Router.
 - PostgreSQL preparado mediante Docker Compose.
 - Configuracion local protegida mediante `.env`.
-- Documentacion separada en una rama funcional y otra tecnica.
-- Maestro de articulos con codigos numericos de cinco digitos, unidades, codigos de barras y referencias por proveedor.
-- Maestro de proveedores con alta, busqueda, modificacion y control de estado.
+- Identidad Morita, temas claro y oscuro y navegación protegida por permisos.
+- Maestros de artículos y socios, stock histórico, inventarios y compras con MRP simple.
+- POS con escaneo, cuenta corriente explícita, notas de crédito e impresión directa.
+- Tesorería con conciliación muchos a muchos, arqueos y calendario de cierres.
+- Informes de flujo, ventas, costos y márgenes con exportación numérica a Excel.
+- Esquema vigente: `20260822_0045 (head)`.
 
 ## Documentacion
 
+- [Estado actual completo](docs/ESTADO_ACTUAL.md): fotografía funcional y técnica de la versión vigente.
+- [Guía operativa integral](docs/funcional/guia-operativa-integral.md): recorrido diario de punta a punta.
 - [Documentacion funcional](docs/funcional/README.md): alcance, lenguaje del negocio y modulos.
 - [Documentacion tecnica](docs/tecnica/README.md): arquitectura, instalacion y decisiones de implementacion.
+- [Procedimiento PowerShell](PASOS_ACTUALIZAR_Y_ARRANCAR.txt): migrar, compilar y arrancar sin perder datos.
 
 ## Inicio rapido
 

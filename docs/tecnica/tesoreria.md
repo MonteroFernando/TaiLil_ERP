@@ -2,7 +2,7 @@
 
 ## Alcance y autorizacion
 
-El router se publica bajo `/api/v1/tesoreria`. Las lecturas exigen `tesoreria.ver`; las escrituras, `tesoreria.gestionar`. La API valida siempre el permiso aunque el frontend oculte la navegacion.
+El router se publica bajo `/api/v1/tesoreria`. Las lecturas generales exigen `tesoreria.ver`; las escrituras generales, `tesoreria.gestionar`. Como excepcion acotada, el control y cierre de la caja propia aceptan `ventas.caja.cerrar`, sin habilitar cuentas corrientes, conciliaciones, pagos, movimientos manuales ni historicos generales. La API valida siempre el permiso y la propiedad de la apertura aunque el frontend oculte la navegacion.
 
 ## Modelo persistente
 
@@ -14,6 +14,7 @@ La migracion `20260821_0037` incorpora el nucleo de Tesoreria:
 - `movimientos_caja` para ingresos y egresos manuales;
 - `arqueos_caja` y `arqueos_caja_detalles` para conteos por denominacion;
 - `cierres_caja` y `cierres_caja_medios` para la foto definitiva de cada apertura;
+- `aperturas_cajas.periodo_operativo` para vincular todos los turnos y cierres a un dia comercial;
 - `saldo_pendiente` en las facturas de compra y relacion opcional de cobros/pagos con una apertura.
 
 Los documentos usan claves UUID, numeracion secuencial, `Numeric(18,2)` para dinero, fechas con zona horaria y claves foraneas `RESTRICT` sobre historicos. Un cierre es unico por apertura. Una denominacion es unica dentro de un arqueo y un medio es unico dentro de un cierre.
@@ -42,6 +43,10 @@ Las imputaciones son muchos a muchos. El indice parcial unico impide duplicar un
 | `POST` | `/tesoreria/cajas/{apertura_id}/cerrar` | Crear cierre definitivo |
 | `GET` | `/tesoreria/cajas/cierres/historial` | Consultar cierres guardados |
 
+El historial admite `periodo` para una fecha exacta y `desde`/`hasta` para intervalos. Ordena primero por periodo operativo descendente y luego por hora real de cierre. La fecha no posee restriccion unica: cada apertura mantiene un solo cierre definitivo, pero un periodo diario puede contener muchos cierres.
+
+`HistorialCierresCalendario.tsx` transforma la respuesta en grupos mensuales y genera una grilla de siete columnas con semana iniciada en lunes. Calcula el desplazamiento del primer dia y completa las celdas vacias hasta cerrar la ultima semana. Las fichas de cierre se renderizan dentro de la fecha correspondiente; el detalle por medio permanece plegado. El filtro mensual convierte `YYYY-MM` en el primer y ultimo dia reales y utiliza `desde`/`hasta`; el filtro diario utiliza `periodo`. La grilla usa un ancho minimo y desplazamiento horizontal en pantallas angostas para conservar la lectura de cada celda.
+
 `DocumentoTesoreriaCrear` exige al menos un medio positivo. Admite varias imputaciones, rechaza documentos repetidos y requiere que el total imputado no supere el total del cobro o pago. Cada medio puede guardar una referencia.
 
 En clientes y proveedores, la UI usa el resumen correspondiente como selector maestro y abre la gestion en un dialogo React. Al elegir una cuenta solicita `/cuentas-corrientes/{tipo}?socio_id=...` con el valor predeterminado `solo_pendientes=true`, por lo que los documentos con saldo cero quedan reservados para los historicos y nunca ofrecen campos de imputacion. Los listados reemplazan las busquedas individuales anteriores.
@@ -53,6 +58,8 @@ En clientes y proveedores, la UI usa el resumen correspondiente como selector ma
 `saldo de factura = total del documento - suma de imputaciones activas`.
 
 El control de caja compone ventas y documentos financieros asociados a la apertura mas movimientos manuales confirmados. El cierre persiste tanto los acumulados como el esperado, declarado y diferencia por medio; no depende de recalcular datos futuros para mostrar el historico.
+
+La migracion `20260822_0045` agrega solamente la columna `DATE` e indice de `periodo_operativo`. Para registros existentes toma la fecha argentina de `fecha_apertura`, luego establece `NOT NULL`. No borra ni vuelve a crear aperturas, ventas, arqueos o cierres.
 
 ## Concurrencia y atomicidad
 

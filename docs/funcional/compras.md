@@ -19,3 +19,29 @@ En cada renglon el articulo se selecciona con busqueda dinamica por palabras en 
 Si el stock anterior es cero o negativo, el promedio no resulta representativo. El sistema toma directamente el costo bruto nuevo y muestra la advertencia en la linea y al confirmar. Cada documento conserva fecha y hora, usuario, proveedor, almacen, cantidades y referencias al movimiento de stock.
 
 La futura recepcion mediante RF podra generar el mismo ingreso de mercaderia sin cambiar estas reglas.
+
+## Rotacion y reposicion (MRP simple)
+
+El encabezado de Compras incorpora **Rotacion y reposicion**. Esta vista permite ordenar los productos con mayor movimiento y estimar una compra sin generar documentos ni cambiar existencias. Requiere el permiso `compras.ver`.
+
+El usuario define:
+
+- **Dias de analisis:** ventana calendario hacia atras, entre 1 y 365 dias.
+- **Proyeccion:** cantidad de dias futuros que se desean cubrir, entre 1 y 365 dias.
+- **Almacen:** uno en particular o todos consolidados.
+- **Busqueda:** codigo y descripcion, con varias palabras en cualquier orden.
+- **Solo con compra sugerida:** oculta los productos cuya cobertura actual ya es suficiente.
+
+El calculo no divide por todos los dias calendario. Primero detecta los **dias trabajados**, es decir, jornadas que tuvieron al menos una venta confirmada. Para cada producto toma de esas jornadas solamente aquellas en las que hubo stock. De este modo, una falta de mercaderia no reduce artificialmente su promedio de venta.
+
+Las formulas son:
+
+1. `rotacion diaria = cantidad vendida / dias trabajados con stock del producto`;
+2. `necesidad proyectada = rotacion diaria x dias de proyeccion`;
+3. `compra sugerida = max(necesidad proyectada - disponible - cantidad pedida, 0)`.
+
+**Disponible** es stock fisico menos reserva, sin considerar valores negativos como disponibilidad. **En pedido** se descuenta porque ya representa mercaderia esperada. Los productos comunes se redondean hacia arriba a unidades enteras; los pesables conservan hasta tres decimales.
+
+La grilla muestra posicion, producto, dias con stock, venta del periodo, rotacion diaria, disponible, en pedido, necesidad y sugerencia. Inicia de mayor a menor rotacion, permite ordenar por cualquier encabezado y se puede exportar a Excel mediante el icono del encabezado. Las cantidades se exportan como numeros, no como texto.
+
+El boton circular **?** abre una explicacion de todos estos conceptos dentro de la pantalla. El resultado es orientativo: no confirma una compra ni reserva stock automaticamente.

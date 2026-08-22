@@ -7,6 +7,8 @@ import BuscadorArticulo from "@/components/BuscadorArticulo";
 import type { ArticuloBuscado } from "@/components/BuscadorArticulo";
 import { useRouter } from "next/navigation";
 import type { Route } from "next";
+import { formatearCantidad } from "@/formato";
+import TablaOrdenable from "@/components/TablaOrdenable";
 
 const apiUrl =
   process.env.NEXT_PUBLIC_API_URL ?? "/api/v1";
@@ -268,7 +270,7 @@ function Existencias({
         </small>
       )}
       <div className="mt-4 overflow-x-auto">
-        <table data-exportar-excel="true" className="w-full text-left text-sm">
+        <TablaOrdenable data-exportar-excel="true" className="w-full text-left text-sm">
           <thead>
             <tr className="text-xs uppercase text-[var(--texto-suave)]">
               <th className="p-3">Articulo</th>
@@ -291,15 +293,15 @@ function Existencias({
                   <small className="block">{x.articulo_descripcion}</small>
                 </td>
                 <td>{x.almacen_codigo}</td>
-                <td>{x.cantidad_fisica}</td>
-                <td>{x.cantidad_pedida}</td>
-                <td>{x.cantidad_reservada}</td>
-                <td>{x.cantidad_disponible}</td>
-                <td>{x.cantidad_disponible_futura}</td>
+                <td>{formatearCantidad(x.cantidad_fisica)}</td>
+                <td>{formatearCantidad(x.cantidad_pedida)}</td>
+                <td>{formatearCantidad(x.cantidad_reservada)}</td>
+                <td>{formatearCantidad(x.cantidad_disponible)}</td>
+                <td>{formatearCantidad(x.cantidad_disponible_futura)}</td>
               </tr>
             ))}
           </tbody>
-        </table>
+        </TablaOrdenable>
       </div>
     </section>
   );
@@ -508,7 +510,7 @@ function Inventarios({
         </form>
       )}
       <div className="overflow-x-auto rounded-2xl border bg-white p-5">
-        <table data-exportar-excel="true" className="w-full text-left text-sm">
+        <TablaOrdenable data-exportar-excel="true" className="w-full text-left text-sm">
           <thead>
             <tr>
               <th>Numero</th>
@@ -549,7 +551,7 @@ function Inventarios({
               </tr>
             ))}
           </tbody>
-        </table>
+        </TablaOrdenable>
       </div>
     </section>
   );
@@ -640,7 +642,7 @@ function FormularioMovimiento({
         <input
           className="mt-1 w-full rounded-xl border p-3"
           type="number"
-          step="0.000001"
+          step="0.001"
           value={cantidad}
           onChange={(e) => setCantidad(e.target.value)}
           required
@@ -755,7 +757,7 @@ function Movimientos({
       )}
       {articuloSeleccionado && filas.length > 0 && (
         <div className="max-h-[65vh] overflow-auto rounded-2xl border bg-white">
-          <table data-exportar-excel="true" className="min-w-[1300px] w-full text-left text-sm">
+          <TablaOrdenable data-exportar-excel="true" className="min-w-[1300px] w-full text-left text-sm">
             <thead className="sticky top-0 z-10 bg-white text-xs uppercase text-[var(--texto-suave)]">
               <tr>
                 <th className="p-3">Fecha y hora</th>
@@ -798,16 +800,16 @@ function Movimientos({
                       <td>{d.almacen_codigo}</td>
                       <td>
                         {entrada ? "+" : ""}
-                        {d.cantidad_base}
+                        {formatearCantidad(d.cantidad_base)}
                       </td>
-                      <td>{d.saldo_anterior}</td>
-                      <td>{d.saldo_posterior}</td>
+                      <td>{formatearCantidad(d.saldo_anterior)}</td>
+                      <td>{formatearCantidad(d.saldo_posterior)}</td>
                     </tr>
                   );
                 }),
               )}
             </tbody>
-          </table>
+          </TablaOrdenable>
         </div>
       )}
     </section>

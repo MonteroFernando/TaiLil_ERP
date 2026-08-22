@@ -75,3 +75,24 @@ def requerir_permiso(codigo: str):
         return usuario
 
     return dependencia
+
+
+def requerir_alguno_de(*codigos: str):
+    """Autoriza cuando el usuario posee al menos uno de los permisos indicados."""
+
+    async def dependencia(
+        usuario: Usuario = Depends(obtener_usuario_actual),
+        sesion_db: AsyncSession = Depends(obtener_sesion),
+    ) -> Usuario:
+        if usuario.es_administrador:
+            return usuario
+        permisos = set(await obtener_codigos_permisos(usuario, sesion_db))
+        if not permisos.intersection(codigos):
+            esperados = " o ".join(codigos)
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Falta alguno de los permisos requeridos: {esperados}",
+            )
+        return usuario
+
+    return dependencia

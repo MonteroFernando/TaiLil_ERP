@@ -1,4 +1,5 @@
-TAILIL ERP - APLICAR ALEMBIC Y ARRANCAR LOS SERVICIOS EN WINDOWS
+MORITA - POWERED BY TAILIL ERP
+APLICAR ALEMBIC Y ARRANCAR LOS SERVICIOS EN WINDOWS
 ================================================================
 
 Ruta actual del proyecto:
@@ -43,7 +44,7 @@ Get-NetTCPConnection -State Listen -LocalPort 3000,8000
 
 El ultimo comando "current" debe mostrar:
 
-20260821_0041 (head)
+20260822_0045 (head)
 
 Si muestra ese valor, la base de datos esta actualizada.
 

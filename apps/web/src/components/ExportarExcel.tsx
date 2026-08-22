@@ -1,6 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
+import { createPortal } from "react-dom";
 import { useEffect, useState } from "react";
 
 export type ValorExcel = string | number | boolean | Date | null | undefined;
@@ -8,6 +9,10 @@ export type FormatoExcel = "moneda" | "porcentaje" | "decimal" | "entero" | "fec
 export type CeldaExcel = { valor: ValorExcel; formato?: FormatoExcel };
 export type ValorCeldaExcel = ValorExcel | CeldaExcel;
 export type HojaExcel = { nombre: string; filas: ValorCeldaExcel[][] };
+
+export function IconoExcel() {
+  return <svg aria-hidden="true" viewBox="0 0 24 24" className="h-6 w-6" fill="none"><path d="M5 3.5h9l5 5v12H5z" fill="currentColor" opacity=".2"/><path d="M14 3.5v5h5M8 10l4 7m0-7-4 7m7-5h2m-2 3h2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>;
+}
 
 const formatoMoneda = '"$"#,##0.00;[Red]-"$"#,##0.00';
 
@@ -33,7 +38,7 @@ function aplicarFormato(celda: { numFmt: string }, formato?: FormatoExcel) {
   if (formato === "moneda") celda.numFmt = formatoMoneda;
   else if (formato === "porcentaje") celda.numFmt = "0.00%";
   else if (formato === "entero") celda.numFmt = "#,##0";
-  else if (formato === "decimal") celda.numFmt = "#,##0.00######";
+  else if (formato === "decimal") celda.numFmt = "#,##0.###";
   else if (formato === "fecha") celda.numFmt = "dd/mm/yyyy hh:mm";
   else if (formato === "texto") celda.numFmt = "@";
 }
@@ -78,7 +83,7 @@ export async function descargarLibroExcel(nombreArchivo: string, hojas: HojaExce
         const formato = original !== undefined && esCeldaExcel(original) ? original.formato : undefined;
         aplicarFormato(celda, formato);
         if (!formato && celda.value instanceof Date) celda.numFmt = "dd/mm/yyyy hh:mm";
-        else if (!formato && typeof celda.value === "number") celda.numFmt = "#,##0.00######";
+        else if (!formato && typeof celda.value === "number") celda.numFmt = "#,##0.###";
       });
     });
     planilla.columns.forEach((columna) => {
@@ -198,10 +203,14 @@ function tablaAHoja(tabla: HTMLTableElement, indice: number): HojaExcel {
 export default function ExportarTablasPagina() {
   const [exportando, setExportando] = useState(false);
   const [disponible, setDisponible] = useState(false);
+  const [encabezado, setEncabezado] = useState<HTMLElement|null>(null);
   const ruta = usePathname();
   const selectorTablasExportables = '.erp-contenido table[data-exportar-excel="true"]';
   useEffect(() => {
-    const actualizar = () => setDisponible(Array.from(document.querySelectorAll<HTMLTableElement>(selectorTablasExportables)).some((tabla) => tabla.offsetParent !== null));
+    const actualizar = () => {
+      setDisponible(Array.from(document.querySelectorAll<HTMLTableElement>(selectorTablasExportables)).some((tabla) => tabla.offsetParent !== null));
+      setEncabezado(document.querySelector<HTMLElement>(".erp-contenido > main > header, .erp-contenido > main > section > header"));
+    };
     const temporizador = window.setTimeout(actualizar, 0);
     const observador = new MutationObserver(actualizar);
     observador.observe(document.body, { childList:true, subtree:true });
@@ -219,6 +228,6 @@ export default function ExportarTablasPagina() {
       setExportando(false);
     }
   }
-  if (!disponible) return null;
-  return <button type="button" onClick={()=>void exportar()} disabled={exportando} className="fixed bottom-5 right-5 z-40 rounded-xl border border-green-700 bg-white px-4 py-3 text-sm font-semibold text-green-800 shadow-lg disabled:opacity-50" title="Exporta los listados habilitados de esta pantalla">{exportando?"Generando Excel...":"Exportar listado · Excel"}</button>;
+  if (!disponible || !encabezado) return null;
+  return createPortal(<button type="button" onClick={()=>void exportar()} disabled={exportando} className="erp-exportar-excel-encabezado" title={exportando?"Generando Excel...":"Exportar listados a Excel"} aria-label={exportando?"Generando Excel":"Exportar listados a Excel"}><IconoExcel/></button>,encabezado);
 }

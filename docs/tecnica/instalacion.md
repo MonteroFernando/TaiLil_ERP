@@ -73,6 +73,8 @@ Para detenerlo sin borrar datos:
 docker compose stop postgres
 ```
 
-## Estado inicial del equipo
+## Verificacion del equipo
 
-Node.js y npm estaban disponibles. Python y Docker no estaban instalados o no se encontraban en `PATH`; deben instalarse antes de ejecutar la API y PostgreSQL mediante Docker.
+Antes de una instalacion nueva, confirme que Node.js, npm, Python y Docker se encuentren disponibles en `PATH`. Esa comprobacion corresponde al equipo donde se desplegara el sistema y no describe necesariamente el servidor que actualmente esta en funcionamiento.
+
+Para actualizar una instalacion existente sin perder datos, siga el procedimiento versionado en `PASOS_ACTUALIZAR_Y_ARRANCAR.txt`: primero realice el respaldo, luego ejecute `alembic upgrade head` y finalmente inicie los servicios con los scripts PowerShell.

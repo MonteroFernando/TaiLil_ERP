@@ -1,5 +1,13 @@
 # Autenticacion y seguridad
 
+## Presentación de marca
+
+La pantalla `/acceso`, los metadatos del sitio y `NavegacionPrincipal` identifican la aplicación como **Morita**. El recurso versionado se encuentra en `apps/web/public/brand/morita-logo.jpeg`; de esta forma la interfaz no depende de una ruta externa o de la computadora donde se obtuvo la imagen.
+
+La paleta se centraliza mediante variables CSS en `apps/web/src/app/globals.css`: `--marca`, `--marca-oscura`, `--marca-media`, `--marca-hover`, `--marca-clara`, `--acento-calido`, `--acento-calido-claro`, `--crema`, `--fondo`, `--superficie`, `--texto`, `--texto-suave`, `--borde` y las sombras de marca. Las reglas globales normalizan los utilitarios verdes y blancos preexistentes para que todas las pantallas adopten el tema sin duplicar valores hexadecimales; los colores semánticos de error y advertencia permanecen independientes. La firma de TaiLil/Fernando es informativa y no interviene en el flujo de autenticación.
+
+`SelectorTema` cambia el atributo `data-tema` del elemento `html` y persiste `claro` u `oscuro` en la clave local `morita.tema`. Un script temprano en el layout restaura el atributo antes de pintar la aplicación para evitar un destello del tema claro. El selector se presenta primero en la navegación y también sobre `/acceso`; no requiere sesión ni comunicación con la API. Las reglas `@media print` restablecen una paleta clara para conservar la legibilidad y el consumo de tinta de tickets, etiquetas e informes.
+
 ## Diseño acordado
 
 - Access token JWT de 15 minutos.
@@ -52,3 +60,7 @@ python -m app.scripts.crear_administrador_inicial
 ```
 
 El comando es idempotente: si el usuario ya existe, no cambia su contraseña ni sus permisos.
+
+## Contraste de controles
+
+Los estilos globales de `select option:checked`, foco de formularios y las utilidades `bg-[var(--marca-clara)]` garantizan contraste en modo oscuro. `BuscadorArticulo` expone sus resultados como `listbox`, y cada resultado usa `role="option"` con `aria-selected` para sincronizar el resaltado visual y el estado accesible.

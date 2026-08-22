@@ -4,6 +4,9 @@ import { apiFetch } from "@/api";
 
 import { FormEvent, useEffect, useState } from "react";
 import BuscadorArticulo, { ArticuloBuscado } from "@/components/BuscadorArticulo";
+import { cantidadParaEntrada, formatearMoneda } from "@/formato";
+import TablaOrdenable from "@/components/TablaOrdenable";
+import RotacionCompras from "@/components/RotacionCompras";
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api/v1";
 type Socio = { id: string; razon_social: string };
 type Almacen = {
@@ -55,7 +58,8 @@ export default function Compras() {
     [numeroProveedor, setNumeroProveedor] = useState(""),
     [politica, setPolitica] = useState("REEMPLAZAR"),
     [mensaje, setMensaje] = useState(""),
-    [nuevo, setNuevo] = useState(false);
+    [nuevo, setNuevo] = useState(false),
+    [rotacion, setRotacion] = useState(false);
   async function cargar() {
     const [rs, ra, ri, rf] = await Promise.all([
       apiFetch(`${apiUrl}/articulos/socios?rol=proveedor`, {
@@ -85,7 +89,7 @@ export default function Compras() {
             x.articulo_id === a.id
               ? {
                   ...x,
-                  cantidad: String(Number(x.cantidad) + Number(cantidad)),
+                  cantidad: cantidadParaEntrada(Number(x.cantidad) + Number(cantidad)),
                 }
               : x,
           )
@@ -115,7 +119,7 @@ export default function Compras() {
         articulo_id: x.articulo_id,
         codigo: x.articulo_codigo,
         descripcion: x.articulo_descripcion,
-        cantidad: x.cantidad_base,
+        cantidad: cantidadParaEntrada(x.cantidad_base),
         costo: "0",
         politica: "",
       })),
@@ -193,12 +197,22 @@ export default function Compras() {
             Ingresos de mercaderia y facturas. Todos los costos son brutos.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => {
+              setNuevo(false);
+              setRotacion((actual) => !actual);
+            }}
+            className={`rounded-xl border px-4 py-2 text-sm font-semibold ${rotacion ? "bg-[var(--marca)] text-white" : "text-[var(--marca)]"}`}
+          >
+            Rotación y reposición
+          </button>
           <a href="/notas-credito?tipo=PROVEEDOR" className="rounded-xl border px-4 py-2 text-sm font-semibold text-[var(--marca)]">Notas de credito</a>
           <button
             onClick={() => {
               setSeccion("INGRESO");
               setLineas([]);
+              setRotacion(false);
               setNuevo(true);
             }}
             className="rounded-xl border px-4 py-2 text-sm font-semibold text-[var(--marca)]"
@@ -209,6 +223,7 @@ export default function Compras() {
             onClick={() => {
               setSeccion("FACTURA");
               setLineas([]);
+              setRotacion(false);
               setNuevo(true);
             }}
             className="rounded-xl bg-[var(--marca)] px-4 py-2 text-sm font-semibold text-white"
@@ -222,6 +237,7 @@ export default function Compras() {
           {mensaje}
         </p>
       )}
+      {rotacion && <RotacionCompras almacenes={almacenes} />}
       {nuevo && <form onSubmit={guardar} className="mt-5 rounded-2xl border bg-white p-5">
         <div className="mb-5 flex items-start justify-between border-b pb-4">
           <div><p className="text-xs font-bold uppercase tracking-widest text-[var(--marca)]">Compras</p><h2 className="text-xl font-semibold">{seccion === "FACTURA" ? "Nueva factura de compra" : "Nuevo ingreso de mercaderia"}</h2></div>
@@ -335,8 +351,8 @@ export default function Compras() {
               Cantidad
               <input
                 type="number"
-                min="0.000001"
-                step="0.000001"
+                min="0.001"
+                step="0.001"
                 value={cantidad}
                 onChange={(e) => setCantidad(e.target.value)}
                 className="mt-1 w-full rounded-xl border p-3"
@@ -377,6 +393,7 @@ export default function Compras() {
                       className="w-32 rounded-lg border p-2"
                       type="number"
                       disabled={!!ingreso}
+                      step="0.001"
                       value={x.cantidad}
                       onChange={(e) =>
                         setLineas(
@@ -456,10 +473,10 @@ export default function Compras() {
           Confirmar {seccion === "FACTURA" ? "factura" : "ingreso"}
         </button>
       </form>}
-      <section className="mt-5 rounded-2xl border bg-white p-5">
+      {!rotacion && <section className="mt-5 rounded-2xl border bg-white p-5">
         <h2 className="text-xl font-semibold">Ultimos documentos</h2>
         <div className="mt-3 overflow-x-auto">
-          <table data-exportar-excel="true" className="w-full text-left text-sm">
+          <TablaOrdenable data-exportar-excel="true" className="w-full text-left text-sm">
             <thead>
               <tr>
                 <th>Tipo</th>
@@ -484,7 +501,7 @@ export default function Compras() {
                     <td>{x.almacen_codigo}</td>
                     <td>
                       {x.total_bruto
-                        ? `$${Number(x.total_bruto).toFixed(2)}`
+                        ? formatearMoneda(x.total_bruto)
                         : "—"}
                     </td>
                     <td>
@@ -493,9 +510,9 @@ export default function Compras() {
                   </tr>
                 ))}
             </tbody>
-          </table>
+          </TablaOrdenable>
         </div>
-      </section>
+      </section>}
     </main>
   );
 }

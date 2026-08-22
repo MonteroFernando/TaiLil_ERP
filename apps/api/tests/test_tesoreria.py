@@ -1,3 +1,4 @@
+from datetime import date
 from decimal import Decimal
 from uuid import uuid4
 
@@ -5,7 +6,9 @@ import pytest
 from pydantic import ValidationError
 
 from app.main import app
-from app.modules.articulos.infrastructure.models import VentaDocumentoDetalle
+from app.modules.articulos.api.schemas import AperturaCajaCrear
+from app.modules.articulos.infrastructure.models import AperturaCaja, VentaDocumentoDetalle
+from app.modules.notas_credito.api.schemas import NotaCreditoCrear
 from app.modules.tesoreria.api.schemas import (
     CierreCajaCrear,
     CuentaCorrienteClienteResumen,
@@ -40,6 +43,36 @@ def test_documento_rechaza_sobreimputacion() -> None:
         )
 
 
+def test_nota_credito_narrativa_admite_importe_sin_stock_ni_renglones() -> None:
+    nota = NotaCreditoCrear.model_validate(
+        {
+            "tipo": "CLIENTE",
+            "documento_origen_id": uuid4(),
+            "modalidad": "NARRATIVA",
+            "importe_narrativo": "1250.50",
+            "motivo": "Diferencia de precio acordada",
+            "afecta_stock": True,
+        }
+    )
+    assert nota.lineas == []
+    assert nota.afecta_stock is False
+    assert nota.importe_narrativo == Decimal("1250.50")
+
+
+def test_devolucion_de_nota_exige_caja_y_medio_juntos() -> None:
+    with pytest.raises(ValidationError):
+        NotaCreditoCrear.model_validate(
+            {
+                "tipo": "CLIENTE",
+                "documento_origen_id": uuid4(),
+                "modalidad": "NARRATIVA",
+                "importe_narrativo": "100.00",
+                "motivo": "Diferencia de precio",
+                "apertura_caja_id": uuid4(),
+            }
+        )
+
+
 def test_cierre_exige_declaracion_de_efectivo() -> None:
     with pytest.raises(ValidationError):
         CierreCajaCrear.model_validate(
@@ -52,6 +85,13 @@ def test_informes_y_costo_historico_estan_disponibles() -> None:
     rutas = app.openapi()["paths"]
     assert "/api/v1/informes/flujo-dinero" in rutas
     assert "/api/v1/informes/ventas-margenes" in rutas
+    assert "/api/v1/informes/filtros/clientes" in rutas
+    assert "/api/v1/informes/filtros/articulos" in rutas
+    parametros = {
+        parametro["name"]
+        for parametro in rutas["/api/v1/informes/ventas-margenes"]["get"]["parameters"]
+    }
+    assert {"desde", "hasta", "cliente_id", "articulo_id", "limite"} <= parametros
 
 
 def test_listado_general_cuentas_corrientes_clientes_esta_disponible() -> None:
@@ -95,3 +135,25 @@ def test_listado_general_cuentas_proveedores_esta_disponible() -> None:
     )
     assert resumen.deuda_actual == Decimal("800.50")
     assert resumen.saldo_favor == Decimal("120.25")
+
+
+def test_apertura_se_vincula_a_un_periodo_operativo_no_unico() -> None:
+    periodo = date(2026, 8, 22)
+    primera = AperturaCajaCrear(
+        caja_id=uuid4(), efectivo_inicial="10000.00", periodo_operativo=periodo
+    )
+    segunda = AperturaCajaCrear(
+        caja_id=uuid4(), efectivo_inicial="25000.00", periodo_operativo=periodo
+    )
+    assert primera.periodo_operativo == segunda.periodo_operativo == periodo
+    assert "periodo_operativo" in AperturaCaja.__table__.columns
+
+
+def test_historial_cierres_admite_busqueda_por_dia_y_rango() -> None:
+    parametros = {
+        parametro["name"]
+        for parametro in app.openapi()["paths"][
+            "/api/v1/tesoreria/cajas/cierres/historial"
+        ]["get"]["parameters"]
+    }
+    assert {"periodo", "desde", "hasta", "limite"} <= parametros

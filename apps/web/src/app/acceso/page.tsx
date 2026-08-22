@@ -1,9 +1,11 @@
 "use client";
 
 import { apiFetch } from "@/api";
+import SelectorTema from "@/components/SelectorTema";
 
-import { FormEvent, useEffect, useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
+import { FormEvent, useEffect, useState } from "react";
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api/v1";
 
@@ -85,58 +87,80 @@ export default function Acceso() {
   }
 
   return (
-    <main className="grid min-h-screen place-items-center px-5 py-10">
-      <section className="w-full max-w-md rounded-3xl border border-[var(--borde)] bg-white p-8 shadow-[0_24px_70px_rgba(21,35,27,0.10)] sm:p-10">
-        <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[var(--marca)]">
-          Sistema de gestion
-        </p>
-        <h1 className="mt-3 text-4xl font-semibold tracking-tight">TaiLil ERP</h1>
-        <p className="mt-3 leading-7 text-[var(--texto-suave)]">
-          {requiereCambio
-            ? "Define una contraseña personal para continuar."
-            : "Ingresa con tu usuario para acceder al sistema."}
-        </p>
-
-        {!requiereCambio ? (
-          <form className="mt-8 space-y-5" onSubmit={iniciarSesion}>
-            <Campo etiqueta="Usuario" valor={usuario} cambiar={setUsuario} autoComplete="username" />
-            <Campo
-              etiqueta="Contraseña"
-              valor={contrasena}
-              cambiar={setContrasena}
-              tipo="password"
-              autoComplete="current-password"
-            />
-            <Boton enviando={enviando} texto="Ingresar" />
-          </form>
-        ) : (
-          <form className="mt-8 space-y-5" onSubmit={cambiarContrasena}>
-            <Campo
-              etiqueta="Contraseña nueva"
-              valor={contrasenaNueva}
-              cambiar={setContrasenaNueva}
-              tipo="password"
-              autoComplete="new-password"
-            />
-            <Campo
-              etiqueta="Confirmar contraseña"
-              valor={confirmacion}
-              cambiar={setConfirmacion}
-              tipo="password"
-              autoComplete="new-password"
-            />
-            <p className="text-sm text-[var(--texto-suave)]">Debe contener al menos 10 caracteres.</p>
-            <Boton enviando={enviando} texto="Guardar y continuar" />
-          </form>
-        )}
-
-        {mensaje && (
-          <p className="mt-5 rounded-xl bg-[var(--marca-clara)] px-4 py-3 text-sm text-[var(--marca)]">
-            {mensaje}
+    <main className="acceso-morita grid min-h-screen place-items-center px-5 py-10">
+      <div className="acceso-selector-tema"><SelectorTema /></div>
+      <section className="acceso-tarjeta w-full max-w-md overflow-hidden rounded-3xl border border-[var(--borde)] bg-white shadow-[0_24px_70px_rgba(0,55,37,0.16)]">
+        <div className="acceso-logo">
+          <Image
+            src="/brand/morita-logo.jpeg"
+            alt="Morita Drugstore"
+            width={882}
+            height={229}
+            priority
+          />
+        </div>
+        <div className="p-8 sm:p-10">
+          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[var(--marca)]">
+            Sistema de gestión
           </p>
-        )}
+          <h1 className="mt-3 text-4xl font-semibold tracking-tight">Bienvenido a Morita</h1>
+          <p className="mt-3 leading-7 text-[var(--texto-suave)]">
+            {requiereCambio
+              ? "Define una contraseña personal para continuar."
+              : "Ingresa con tu usuario para acceder al sistema."}
+          </p>
+
+          {!requiereCambio ? (
+            <form className="mt-8 space-y-5" onSubmit={iniciarSesion}>
+              <Campo etiqueta="Usuario" valor={usuario} cambiar={setUsuario} autoComplete="username" />
+              <Campo
+                etiqueta="Contraseña"
+                valor={contrasena}
+                cambiar={setContrasena}
+                tipo="password"
+                autoComplete="current-password"
+              />
+              <Boton enviando={enviando} texto="Ingresar" />
+            </form>
+          ) : (
+            <form className="mt-8 space-y-5" onSubmit={cambiarContrasena}>
+              <Campo
+                etiqueta="Contraseña nueva"
+                valor={contrasenaNueva}
+                cambiar={setContrasenaNueva}
+                tipo="password"
+                autoComplete="new-password"
+              />
+              <Campo
+                etiqueta="Confirmar contraseña"
+                valor={confirmacion}
+                cambiar={setConfirmacion}
+                tipo="password"
+                autoComplete="new-password"
+              />
+              <p className="text-sm text-[var(--texto-suave)]">Debe contener al menos 10 caracteres.</p>
+              <Boton enviando={enviando} texto="Guardar y continuar" />
+            </form>
+          )}
+
+          {mensaje && (
+            <p className="mt-5 rounded-xl bg-[var(--marca-clara)] px-4 py-3 text-sm text-[var(--marca)]">
+              {mensaje}
+            </p>
+          )}
+        </div>
+        <FirmaTaiLil clase="acceso-firma" />
       </section>
     </main>
+  );
+}
+
+function FirmaTaiLil({ clase = "" }: { clase?: string }) {
+  return (
+    <footer className={clase}>
+      <span>Power by TaiLil ERP</span>
+      <small>TaiLil Soluciones Tecnológicas by Fernando Montero</small>
+    </footer>
   );
 }
 

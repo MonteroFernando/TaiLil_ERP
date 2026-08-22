@@ -6,6 +6,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Route } from "next";
 import BuscadorArticulo from "@/components/BuscadorArticulo";
+import TablaOrdenable from "@/components/TablaOrdenable";
 
 const apiUrl =
   process.env.NEXT_PUBLIC_API_URL ?? "/api/v1";
@@ -123,7 +124,7 @@ export default function MaestroArticulos() {
             />
           </div>
           <div className="mt-4 overflow-x-auto">
-            <table data-exportar-excel="true" className="w-full text-left text-sm">
+            <TablaOrdenable data-exportar-excel="true" className="w-full text-left text-sm">
               <thead className="text-xs uppercase text-[var(--texto-suave)]">
                 <tr>
                   <th className="p-3">Codigo</th>
@@ -155,7 +156,7 @@ export default function MaestroArticulos() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </TablaOrdenable>
             {!articulos.length && (
               <p className="p-6 text-center text-sm text-[var(--texto-suave)]">
                 No hay articulos para mostrar.
@@ -401,7 +402,7 @@ function ModalNuevo({
                   <input
                     type="number"
                     min="0"
-                    step="0.000001"
+                    step="0.001"
                     value={stockCantidad}
                     onChange={(e) => setStockCantidad(e.target.value)}
                     placeholder="0"

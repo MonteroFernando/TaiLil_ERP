@@ -11,6 +11,8 @@ from app.modules.articulos.api.schemas import (
     DescripcionPosActualizar,
     PosVentaCrear,
     PrecioVentaConsultaVista,
+    RotacionCompraArticuloVista,
+    RotacionComprasVista,
 )
 
 
@@ -121,6 +123,7 @@ def test_consulta_pos_solo_expone_precio_de_venta() -> None:
         "articulo_codigo",
         "articulo_descripcion",
         "precio_venta_bruto",
+        "precio_anterior_bruto",
     }
     assert "precio_base_bruto" not in campos
     assert "margen_porcentual" not in campos
@@ -154,3 +157,34 @@ def test_pos_no_acepta_dos_imputaciones_a_cuenta_corriente() -> None:
                 {"medio": "CUENTA_CORRIENTE", "importe": "50"},
             ],
         )
+
+
+def test_rotacion_compras_conserva_cantidades_numericas_y_contexto() -> None:
+    articulo_id = uuid4()
+    resultado = RotacionComprasVista(
+        fecha_desde="2026-08-01",
+        fecha_hasta="2026-08-22",
+        dias_analisis=30,
+        dias_proyeccion=15,
+        dias_trabajados=18,
+        almacen_id=None,
+        articulos=[
+            RotacionCompraArticuloVista(
+                articulo_id=articulo_id,
+                codigo="00001",
+                descripcion="PRODUCTO",
+                es_pesable=False,
+                dias_con_stock=10,
+                cantidad_vendida="25.000",
+                promedio_diario="2.500",
+                disponible="10.000",
+                cantidad_pedida="5.000",
+                necesidad_proyectada="37.500",
+                sugerencia_compra="23",
+            )
+        ],
+    )
+    item = resultado.articulos[0]
+    assert item.promedio_diario == Decimal("2.500")
+    assert item.sugerencia_compra == Decimal("23")
+    assert resultado.dias_trabajados == 18

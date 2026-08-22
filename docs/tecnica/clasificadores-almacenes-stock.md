@@ -1,5 +1,11 @@
 # Diseño tecnico de clasificadores, almacenes y stock
 
+## Presentación numérica
+
+`apps/web/src/formato.ts` concentra los formateadores `es-AR`. `formatearCantidad` utiliza agrupación de miles y entre cero y tres decimales; `formatearMoneda` utiliza ARS y dos decimales. `cantidadParaEntrada` normaliza valores provenientes de `Decimal` para que los controles no presenten los seis ceros usados por la precisión de persistencia, y `redondearCantidad` evita residuos binarios en operaciones del POS.
+
+Los controles HTML de cantidades utilizan `step="0.001"`. Los campos de costo o precio pueden conservar una precisión técnica mayor porque no representan cantidades físicas. El formato localizado se aplica únicamente al mostrar datos: las solicitudes a la API y las exportaciones Excel conservan tipos numéricos.
+
 La migracion `20260816_0013` incorpora `clasificadores_articulos`, `articulos_clasificadores`, `almacenes` y `stocks_articulos_almacenes`.
 
 `articulos_clasificadores` implementa una relacion muchos a muchos mediante UUID. `clasificadores_articulos` no posee codigo funcional y conserva los campos `tipo` y `nombre`; `padre_id` es una referencia recursiva que permite profundidad variable. Todos los textos de negocio pasan por la normalizacion general a mayusculas.

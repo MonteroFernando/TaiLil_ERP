@@ -18,7 +18,19 @@ Una venta a cuenta corriente no es una entrada de dinero hasta que exista un cob
 
 ## Ventas y margenes
 
-Muestra por comprobante la venta original, notas de credito, venta neta, costo historico neto, margen bruto y porcentaje sobre venta. Puede filtrarse por cliente buscando por nombre, codigo o documento. Las notas descuentan tanto el ingreso como el costo de las cantidades devueltas.
+Funciona como historico de ventas: muestra una fila por comprobante con fecha y hora, numero, cliente, punto de venta, caja, cantidad de articulos distintos, importe original, notas de credito, importe neto, costo historico neto, margen bruto y porcentaje sobre venta. El encabezado de cada columna permite ordenar las filas cargadas.
+
+Puede filtrarse simultaneamente por:
+
+- periodo, con los campos **Desde** y **Hasta**;
+- cliente, mediante una busqueda dinamica por nombre, codigo o documento;
+- producto, mediante una busqueda dinamica por codigo interno, descripcion, codigo de barras o codigo del proveedor. Las palabras pueden escribirse en cualquier orden.
+
+Al filtrar un producto se muestran las facturas que contienen ese producto. Los importes, costos y margenes siguen correspondiendo a la factura completa, no solamente al renglon encontrado. Los botones **Quitar filtro** permiten volver al listado general sin borrar el periodo.
+
+El listado discrimina las facturas y cada N/C vinculada. Cada fila muestra importe, costo, margen monetario y margen porcentual. Se pueden marcar documentos individualmente, seleccionar todos o quitar la seleccion; el bloque **Rentabilidad combinada de la seleccion** suma sus importes, costos y margenes con signo. La N/C de productos revierte ingreso y costo historico. La N/C narrativa por diferencia de precio revierte ingreso sin inventar una devolucion de costo.
+
+Las notas descuentan tanto el ingreso como el costo de las cantidades devueltas.
 
 El costo es el valor guardado en cada renglon al confirmar la venta. Por eso una modificacion posterior del precio de compra no reescribe el margen historico. El porcentaje se calcula como `margen / venta × 100`; si la venta es cero, se informa cero.
 
@@ -28,13 +40,13 @@ El costo es el valor guardado en cada renglon al confirmar la venta. Por eso una
 
 - **Resumen**: periodo y totales de flujo, ventas, costo y margen;
 - **Flujo de dinero**: fecha, sentido, origen, medio, concepto e importe;
-- **Ventas y margenes**: fecha, comprobante, cliente, venta original, notas de credito, venta neta, costo neto, margen y porcentaje.
+- **Ventas y margenes**: fecha y hora, comprobante, cliente, punto de venta, caja, articulos distintos, venta original, notas de credito, importe neto, costo neto, margen y porcentaje.
 
 Los importes se almacenan en las celdas como numeros, con formato monetario; los porcentajes son valores numericos con formato porcentual; las fechas son fechas de Excel. Nunca se exportan importes como texto. Codigos, documentos y comprobantes se mantienen como texto para no perder ceros iniciales.
 
 ## Exportacion de listados operativos
 
-El boton general **Exportar listado · Excel** aparece solamente donde el listado tiene valor administrativo:
+El boton general de exportacion aparece como el icono verde de Excel en el encabezado de la pantalla, solamente donde el listado tiene valor administrativo. Ya no utiliza un boton flotante que tape tablas o acciones:
 
 - articulos;
 - ultimos documentos de compras;

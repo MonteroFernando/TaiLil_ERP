@@ -34,4 +34,10 @@ Los futuros maestros deben seguir este mismo comportamiento e incorporar todos s
 
 El listado de articulos muestra la accion **⚙ Detalles** para abrir la ficha completa. La eliminacion no se ofrece desde ese listado.
 
+## Ordenamiento de listados
+
+Las tablas de consulta, maestros e historicos que pueden crecer permiten ordenar al pulsar el encabezado de una columna. El primer toque ordena en forma ascendente, el segundo en forma descendente y el tercero recupera el orden original del listado. La flecha del encabezado identifica el estado actual.
+
+Fechas y horas, cantidades, porcentajes e importes se comparan por su valor real; no se ordenan alfabeticamente. Las columnas vacias o de **Accion/Acciones** no se ofrecen como criterio. Las grillas usadas para cargar documentos, contar inventario o imputar pagos mantienen su orden operativo para evitar que una fila cambie de lugar mientras se escribe.
+
 En articulos, la baja operativa se realiza desmarcando **Articulo activo**. Esto deshabilita tambien venta, compra e inventario y lo excluye de buscadores y selectores operativos, pero conserva su ficha e historial. La eliminacion fisica se ubicara en la ficha y solamente podra autorizarse si el registro no posee movimientos ni relaciones historicas.

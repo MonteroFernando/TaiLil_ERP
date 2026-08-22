@@ -2,6 +2,12 @@
 
 Documentacion vigente al **22 de agosto de 2026**. Este indice es el punto de entrada para operacion, capacitacion, soporte y desarrollo.
 
+## Estado consolidado
+
+- [Estado actual de Morita sobre TaiLil ERP](ESTADO_ACTUAL.md)
+- [Guia operativa integral](funcional/guia-operativa-integral.md)
+- [Estado tecnico e integridad](tecnica/estado-implementacion-e-integridad.md)
+
 ## Manual funcional
 
 - [Acceso y seguridad](funcional/acceso-y-seguridad.md)
@@ -13,6 +19,7 @@ Documentacion vigente al **22 de agosto de 2026**. Este indice es el punto de en
 - [Clasificadores, almacenes, stock e inventarios](funcional/clasificadores-almacenes-stock.md)
 - [Busquedas comunes](funcional/patron-maestros-y-busquedas.md)
 - [Compras](funcional/compras.md)
+- [Rotacion y reposicion MRP](tecnica/compras-rotacion-mrp.md)
 - [Listas de precios](funcional/listas-de-precios.md)
 - [Punto de venta](funcional/punto-de-venta.md)
 - [Cuenta corriente](funcional/cuenta-corriente-ventas.md)
@@ -24,6 +31,7 @@ Documentacion vigente al **22 de agosto de 2026**. Este indice es el punto de en
 ## Referencia tecnica
 
 - [Indice tecnico](tecnica/README.md)
+- [Estado de implementacion e integridad](tecnica/estado-implementacion-e-integridad.md)
 - [Tesoreria](tecnica/tesoreria.md)
 - [Cuenta corriente y credito](tecnica/cuenta-corriente-ventas.md)
 - [Notas de credito](tecnica/notas-de-credito.md)

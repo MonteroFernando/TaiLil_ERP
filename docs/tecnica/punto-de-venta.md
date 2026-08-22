@@ -36,7 +36,9 @@ Dos indices parciales de PostgreSQL impiden más de una apertura `ABIERTA` por c
 - `DELETE /api/v1/articulos/pos/borradores/{id}` elimina un borrador sin impacto.
 - `GET /api/v1/articulos/pos/ventas/{id}/imprimir?formato=ticket|a4&automatico=true|false` genera la vista imprimible y registra la impresion. Con `automatico=true`, invoca `window.print()` al cargar y cierra la ventana despues del trabajo.
 
-La API recalcula precios, lista aplicable, neto e IVA; no acepta importes comerciales calculados por el frontend. Requiere `ventas.gestionar` para confirmar y `ventas.ver` para consultar.
+La API recalcula precios, lista aplicable, neto e IVA; no acepta importes comerciales calculados por el frontend. Los accesos generales conservan `ventas.gestionar` para confirmar y `ventas.ver` para consultar. El perfil acotado usa `ventas.caja.operar` solamente en los endpoints indispensables del POS.
+
+`GET /api/v1/articulos/pos/precio` devuelve un contrato comercial reducido: lista aplicada, precio de venta y, cuando corresponde, precio anterior. Nunca serializa `precio_base_bruto` ni el costo COMPRAS. El cierre integrado usa `GET /api/v1/tesoreria/cajas/{apertura_id}/control` y `POST /api/v1/tesoreria/cajas/{apertura_id}/cerrar`, autorizados por `ventas.caja.cerrar` o los permisos generales de Tesoreria. Para usuarios no administradores ambos endpoints validan que la apertura pertenezca al usuario autenticado.
 
 ## Atomicidad e inventario
 
@@ -62,7 +64,7 @@ El layout de escritorio usa una grilla `minmax(0, 1fr) / 370px` dentro de la alt
 
 El frontend registra `F2` a nivel de ventana y dirige el foco al buscador operativo de articulos, incluso si el foco estaba en otro control. La seleccion por `Enter` conserva el foco en el buscador; `Tab` sigue el orden natural del DOM hacia la cantidad. El campo usa paso entero para articulos comunes y paso decimal para pesables; `Enter` desde cantidad devuelve el foco al buscador. `F10` abre el cobro global y `Escape` lo cierra.
 
-`BuscadorArticulo` usa `seleccionarDirectoConEnter`: un codigo de barra exacto se resuelve y agrega con el Enter del lector. `F3` abre un dialogo React con la misma busqueda; consulta `GET /api/v1/articulos/pos/precio?articulo_id=...&cantidad_base=...`, protegido por `ventas.ver`. La respuesta expone precios comerciales resueltos y no incluye el costo base COMPRAS.
+`BuscadorArticulo` usa `seleccionarDirectoConEnter`: un codigo de barra exacto se resuelve y agrega con el Enter del lector. `F3` abre un dialogo React con la misma busqueda; consulta endpoints comerciales protegidos por `ventas.ver` o `ventas.caja.operar`. La respuesta expone precios comerciales resueltos y no incluye el costo base COMPRAS.
 
 El buscador interpreta opcionalmente el prefijo `cantidad*` y envia al POS el articulo junto con el multiplicador. El POS agrupa por identificador de articulo: una seleccion repetida acumula cantidad en la linea existente y vuelve a resolver la escala de precios.
 El total general del frontend se deriva directamente de `cantidad * precio` para cada linea. El subtotal almacenado en el estado no se utiliza como fuente del cobro, evitando divergencias al crear por primera vez una linea con multiplicador.

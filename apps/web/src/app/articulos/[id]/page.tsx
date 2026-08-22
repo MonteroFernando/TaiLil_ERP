@@ -4,6 +4,8 @@ import { apiFetch } from "@/api";
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import { cantidadParaEntrada, formatearCantidad } from "@/formato";
+import TablaOrdenable from "@/components/TablaOrdenable";
 
 const apiUrl =
   process.env.NEXT_PUBLIC_API_URL ?? "/api/v1";
@@ -216,7 +218,7 @@ function SeccionStocks({ stocks }: { stocks: Stock[] }) {
         Disponible = fisico - reservado. Futuro = fisico + pedido - reservado.
       </p>
       <div className="mt-4 overflow-x-auto">
-        <table className="w-full text-left text-sm">
+        <TablaOrdenable className="w-full text-left text-sm">
           <thead>
             <tr className="text-xs uppercase text-[var(--texto-suave)]">
               <th className="p-2">Almacen</th>
@@ -233,15 +235,15 @@ function SeccionStocks({ stocks }: { stocks: Stock[] }) {
                 <td className="p-2">
                   <b>{s.almacen_codigo}</b> · {s.almacen_descripcion}
                 </td>
-                <td>{s.cantidad_fisica}</td>
-                <td>{s.cantidad_pedida}</td>
-                <td>{s.cantidad_reservada}</td>
-                <td>{s.cantidad_disponible}</td>
-                <td>{s.cantidad_disponible_futura}</td>
+                <td>{formatearCantidad(s.cantidad_fisica)}</td>
+                <td>{formatearCantidad(s.cantidad_pedida)}</td>
+                <td>{formatearCantidad(s.cantidad_reservada)}</td>
+                <td>{formatearCantidad(s.cantidad_disponible)}</td>
+                <td>{formatearCantidad(s.cantidad_disponible_futura)}</td>
               </tr>
             ))}
           </tbody>
-        </table>
+        </TablaOrdenable>
       </div>
     </section>
   );
@@ -255,7 +257,7 @@ function ReglasPrecios({articuloId,informar}:{articuloId:string;informar:(m:stri
   useEffect(()=>{const t=window.setTimeout(()=>void cargar(),0);return()=>window.clearTimeout(t)},[cargar]);
   async function agregar(e:FormEvent){e.preventDefault();const r=await apiFetch(`${apiUrl}/articulos/precios/articulos/${articuloId}/reglas`,{method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify({lista_precio_id:lista,cantidad_minima:cantidad})});const d=await r.json();if(!r.ok){informar(d.detail??"No se pudo crear la regla");return}setLista("");setCantidad("");informar("Regla de precio creada");await cargar()}
   async function quitar(id:string){const r=await apiFetch(`${apiUrl}/articulos/precios/articulos/${articuloId}/reglas/${id}`,{method:"DELETE",credentials:"include"});if(r.ok){informar("Regla eliminada");await cargar()}}
-  return <section className="mt-8 rounded-2xl border bg-white p-5"><h2 className="text-xl font-semibold">Cambio automatico de lista por cantidad</h2><p className="mt-1 text-sm text-[var(--texto-suave)]">Cuando la cantidad supera el umbral en unidad base, se utiliza la lista indicada. Si coinciden varias reglas, se aplica el umbral mas alto.</p><form onSubmit={agregar} className="mt-4 grid gap-3 sm:grid-cols-[1fr_220px_auto]"><label className="text-sm">Lista de destino<select className="mt-1 w-full rounded-xl border p-3" value={lista} onChange={e=>setLista(e.target.value)} required><option value="">Seleccionar</option>{listas.filter(x=>!x.es_base&&x.activa&&!reglas.some(r=>r.lista_precio_id===x.id)).map(x=><option key={x.id} value={x.id}>{x.nombre}</option>)}</select></label><label className="text-sm">Supera cantidad base<input className="mt-1 w-full rounded-xl border p-3" type="number" min="0.000001" step="0.000001" value={cantidad} onChange={e=>setCantidad(e.target.value)} required/></label><button className="self-end rounded-xl bg-[var(--marca)] px-4 py-3 font-semibold text-white">Agregar regla</button></form><div className="mt-4 overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr><th>Lista</th><th>Cantidad base</th><th></th></tr></thead><tbody>{reglas.map(x=><tr key={x.id} className="border-t"><td className="py-3 font-semibold">{x.lista_nombre}</td><td>Mayor a {x.cantidad_minima}</td><td className="text-right"><button onClick={()=>void quitar(x.id)} className="rounded-lg border border-red-200 px-3 py-2 text-red-700">Quitar</button></td></tr>)}</tbody></table></div></section>
+  return <section className="mt-8 rounded-2xl border bg-white p-5"><h2 className="text-xl font-semibold">Cambio automatico de lista por cantidad</h2><p className="mt-1 text-sm text-[var(--texto-suave)]">Cuando la cantidad supera el umbral en unidad base, se utiliza la lista indicada. Si coinciden varias reglas, se aplica el umbral mas alto.</p><form onSubmit={agregar} className="mt-4 grid gap-3 sm:grid-cols-[1fr_220px_auto]"><label className="text-sm">Lista de destino<select className="mt-1 w-full rounded-xl border p-3" value={lista} onChange={e=>setLista(e.target.value)} required><option value="">Seleccionar</option>{listas.filter(x=>!x.es_base&&x.activa&&!reglas.some(r=>r.lista_precio_id===x.id)).map(x=><option key={x.id} value={x.id}>{x.nombre}</option>)}</select></label><label className="text-sm">Supera cantidad base<input className="mt-1 w-full rounded-xl border p-3" type="number" min="0.001" step="0.001" value={cantidad} onChange={e=>setCantidad(e.target.value)} required/></label><button className="self-end rounded-xl bg-[var(--marca)] px-4 py-3 font-semibold text-white">Agregar regla</button></form><div className="mt-4 overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr><th>Lista</th><th>Cantidad base</th><th></th></tr></thead><tbody>{reglas.map(x=><tr key={x.id} className="border-t"><td className="py-3 font-semibold">{x.lista_nombre}</td><td>Mayor a {formatearCantidad(x.cantidad_minima)}</td><td className="text-right"><button onClick={()=>void quitar(x.id)} className="rounded-lg border border-red-200 px-3 py-2 text-red-700">Quitar</button></td></tr>)}</tbody></table></div></section>
 }
 
 function EditarArticulo({
@@ -540,7 +542,7 @@ function SeccionPresentaciones({
     setEditando(item.id);
     setUnidadId(item.unidad_medida_id);
     setNombre(item.nombre_presentacion);
-    setFactor(item.factor_a_base);
+    setFactor(cantidadParaEntrada(item.factor_a_base));
     setEsAlternativa(item.es_unidad_alternativa);
   }
 
@@ -710,8 +712,8 @@ function SeccionPresentaciones({
         <input
           className="w-full rounded-xl border border-[var(--borde)] px-3 py-2"
           type="number"
-          min="0.000001"
-          step="0.000001"
+          min="0.001"
+          step="0.001"
           value={factor}
           onChange={(e) => setFactor(e.target.value)}
           required
@@ -761,7 +763,7 @@ function SeccionCodigos({
     setEditando(item.id);
     setCodigo(item.codigo);
     setModo(item.modo_contenido);
-    setCantidad(item.cantidad);
+    setCantidad(cantidadParaEntrada(item.cantidad));
     setPresentacionId(item.articulo_unidad_id ?? "");
   }
 
@@ -823,7 +825,7 @@ function SeccionCodigos({
           >
             <strong className="font-mono">{item.codigo}</strong>
             <p className="text-[var(--texto-suave)]">
-              Descuenta {item.cantidad_base_resuelta} unidades base
+              Descuenta {formatearCantidad(item.cantidad_base_resuelta)} unidades base
             </p>
             <div className="mt-2 flex gap-3">
               <button
@@ -873,8 +875,8 @@ function SeccionCodigos({
           <input
             className="w-full rounded-xl border border-[var(--borde)] px-3 py-2"
             type="number"
-            min="0.000001"
-            step="0.000001"
+            min="0.001"
+            step="0.001"
             value={cantidad}
             onChange={(e) => setCantidad(e.target.value)}
           />

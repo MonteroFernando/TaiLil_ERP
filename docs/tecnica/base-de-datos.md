@@ -1,5 +1,11 @@
 # Base de datos
 
+## Revision vigente
+
+La cadena de migraciones aplicada llega a `20260822_0045 (head)`. Alembic es el unico mecanismo autorizado para modificar estructura o completar datos derivados durante una actualizacion.
+
+Las actualizaciones normales son incrementales y conservan datos. Esto no reemplaza el respaldo operativo de PostgreSQL: antes de actualizar un servidor productivo debe existir una copia recuperable independiente del volumen o servicio en uso.
+
 ## Normalizacion de textos
 
 Los textos de negocio se almacenan en mayusculas. Los campos de correo electronico son la excepcion: se excluyen de la conversion global y se guardan normalizados en minusculas.
@@ -29,3 +35,5 @@ Ejemplos: `usuarios`, `empresas`, `productos`, `usuario_id`, `inventario_movimie
 Las tablas de autorizacion iniciales son `permisos`, `perfiles_acceso`, `perfiles_permisos`, `usuarios_perfiles` y `usuarios_permisos`.
 
 Los nombres exigidos por protocolos o librerias pueden permanecer en ingles. Toda modificacion del esquema se realizara con Alembic y quedara versionada.
+
+Los documentos financieros, ventas, movimientos, arqueos y cierres no deben corregirse mediante `DELETE` o edicion manual. Se utilizan estados, anulaciones con motivo, notas de credito, ajustes o documentos compensatorios. Las claves foraneas `RESTRICT` evitan eliminar maestros que ya poseen historial.

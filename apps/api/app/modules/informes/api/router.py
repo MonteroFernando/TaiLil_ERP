@@ -3,15 +3,21 @@ from decimal import Decimal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.infrastructure.database.sesion import obtener_sesion
 from app.modules.articulos.infrastructure.models import (
+    Articulo,
+    ArticuloProveedor,
+    CajaVenta,
     CobroDocumento,
     CobroMedioPago,
+    CodigoBarraArticulo,
     NotaCredito,
     NotaCreditoDetalle,
+    PuntoVenta,
     Socio,
     VentaDocumento,
     VentaDocumentoDetalle,
@@ -39,6 +45,70 @@ def importe(valor: Decimal | int | None) -> Decimal:
     return Decimal(valor or 0).quantize(Decimal("0.01"))
 
 
+@router.get("/filtros/clientes", dependencies=[Depends(requerir_permiso("informes.ver"))])
+async def buscar_clientes_informe(
+    buscar: str = Query(default="", max_length=100),
+    sesion: AsyncSession = Depends(obtener_sesion),
+) -> list[dict]:
+    consulta = select(Socio).where(Socio.es_cliente.is_(True), Socio.activo.is_(True))
+    for termino in buscar.split():
+        patron = f"%{termino}%"
+        consulta = consulta.where(
+            or_(
+                Socio.codigo.ilike(patron),
+                Socio.razon_social.ilike(patron),
+                Socio.nombre_fantasia.ilike(patron),
+                Socio.numero_documento.ilike(patron),
+            )
+        )
+    clientes = list(await sesion.scalars(consulta.order_by(Socio.razon_social).limit(20)))
+    return [
+        {
+            "id": cliente.id,
+            "codigo": cliente.codigo,
+            "razon_social": cliente.razon_social,
+            "numero_documento": cliente.numero_documento,
+        }
+        for cliente in clientes
+    ]
+
+
+@router.get("/filtros/articulos", dependencies=[Depends(requerir_permiso("informes.ver"))])
+async def buscar_articulos_informe(
+    buscar: str = Query(default="", max_length=100),
+    sesion: AsyncSession = Depends(obtener_sesion),
+) -> list[dict]:
+    consulta = select(Articulo).where(Articulo.habilitado.is_(True))
+    for termino in buscar.split():
+        patron = f"%{termino}%"
+        consulta = consulta.where(
+            or_(
+                Articulo.codigo.ilike(patron),
+                Articulo.descripcion.ilike(patron),
+                Articulo.descripcion_ampliada.ilike(patron),
+                select(CodigoBarraArticulo.id)
+                .where(
+                    CodigoBarraArticulo.articulo_id == Articulo.id,
+                    CodigoBarraArticulo.codigo.ilike(patron),
+                    CodigoBarraArticulo.activo.is_(True),
+                )
+                .exists(),
+                select(ArticuloProveedor.id)
+                .where(
+                    ArticuloProveedor.articulo_id == Articulo.id,
+                    ArticuloProveedor.codigo_proveedor.ilike(patron),
+                    ArticuloProveedor.activo.is_(True),
+                )
+                .exists(),
+            )
+        )
+    articulos = list(await sesion.scalars(consulta.order_by(Articulo.codigo).limit(20)))
+    return [
+        {"id": articulo.id, "codigo": articulo.codigo, "descripcion": articulo.descripcion}
+        for articulo in articulos
+    ]
+
+
 @router.get("/flujo-dinero", dependencies=[Depends(requerir_permiso("informes.ver"))])
 async def flujo_dinero(
     desde: date | None = None,
@@ -52,7 +122,7 @@ async def flujo_dinero(
             .join(CobroMedioPago, CobroMedioPago.cobro_id == CobroDocumento.id)
             .where(
                 CobroDocumento.estado == "CONFIRMADO",
-                CobroMedioPago.medio != "NOTA_CREDITO",
+            CobroMedioPago.medio.notin_(("NOTA_CREDITO", "DEVOLUCION_NC")),
                 CobroDocumento.fecha_realizacion >= inicio,
                 CobroDocumento.fecha_realizacion < fin,
             )
@@ -132,6 +202,7 @@ async def ventas_margenes(
     desde: date | None = None,
     hasta: date | None = None,
     cliente_id: UUID | None = None,
+    articulo_id: UUID | None = None,
     limite: int = Query(500, ge=1, le=1000),
     sesion: AsyncSession = Depends(obtener_sesion),
 ) -> dict:
@@ -140,34 +211,193 @@ async def ventas_margenes(
         func.sum(VentaDocumentoDetalle.cantidad_base * VentaDocumentoDetalle.costo_unitario_bruto),
         0,
     )
+    detalle_filtro = aliased(VentaDocumentoDetalle)
+    cantidad_articulos = func.count(func.distinct(VentaDocumentoDetalle.articulo_id))
     consulta = (
-        select(VentaDocumento, Socio, costo.label("costo"))
+        select(
+            VentaDocumento,
+            Socio,
+            PuntoVenta,
+            CajaVenta,
+            costo.label("costo"),
+            cantidad_articulos.label("cantidad_articulos"),
+        )
         .join(Socio, Socio.id == VentaDocumento.cliente_id)
         .join(VentaDocumentoDetalle, VentaDocumentoDetalle.venta_id == VentaDocumento.id)
+        .outerjoin(PuntoVenta, PuntoVenta.id == VentaDocumento.punto_venta_id)
+        .outerjoin(CajaVenta, CajaVenta.id == VentaDocumento.caja_id)
         .where(
             VentaDocumento.estado == "CONFIRMADO",
             VentaDocumento.fecha_realizacion >= inicio,
             VentaDocumento.fecha_realizacion < fin,
         )
-        .group_by(VentaDocumento.id, Socio.id)
+        .group_by(VentaDocumento.id, Socio.id, PuntoVenta.id, CajaVenta.id)
         .order_by(VentaDocumento.fecha_realizacion)
         .limit(limite)
     )
     if cliente_id:
         consulta = consulta.where(VentaDocumento.cliente_id == cliente_id)
+    if articulo_id:
+        consulta = consulta.where(
+            select(detalle_filtro.id)
+            .where(
+                detalle_filtro.venta_id == VentaDocumento.id,
+                detalle_filtro.articulo_id == articulo_id,
+            )
+            .exists()
+        )
     filas = (await sesion.execute(consulta)).all()
     ventas = []
-    for venta, socio, costo_bruto in filas:
-        credito = importe(
-            await sesion.scalar(
-                select(func.coalesce(func.sum(NotaCredito.total_bruto), 0)).where(
+    documentos = []
+    for venta, socio, punto, caja, costo_bruto, cantidad_items in filas:
+        notas = list(
+            await sesion.scalars(
+                select(NotaCredito)
+                .where(
                     NotaCredito.venta_id == venta.id,
                     NotaCredito.tipo == "CLIENTE",
                     NotaCredito.estado == "CONFIRMADO",
                 )
+                .order_by(NotaCredito.fecha_realizacion, NotaCredito.numero)
             )
         )
-        costo_devuelto = importe(
+        costos_notas: dict[UUID, Decimal] = {}
+        for nota in notas:
+            costos_notas[nota.id] = importe(
+                await sesion.scalar(
+                    select(
+                        func.coalesce(
+                            func.sum(
+                                NotaCreditoDetalle.cantidad_base
+                                * VentaDocumentoDetalle.costo_unitario_bruto
+                            ),
+                            0,
+                        )
+                    )
+                    .join(
+                        VentaDocumentoDetalle,
+                        VentaDocumentoDetalle.id == NotaCreditoDetalle.venta_detalle_id,
+                    )
+                    .where(NotaCreditoDetalle.nota_credito_id == nota.id)
+                )
+            )
+        credito = importe(sum((nota.total_bruto for nota in notas), Decimal(0)))
+        costo_devuelto = importe(sum(costos_notas.values(), Decimal(0)))
+        venta_original = importe(venta.total_bruto)
+        costo_original = importe(Decimal(costo_bruto))
+        total = importe(venta_original - credito)
+        costo_total = importe(costo_original - costo_devuelto)
+        margen = total - costo_total
+        comprobante = (
+            f"{venta.letra} {punto.codigo}-{venta.numero or 0:08d}"
+            if punto
+            else f"{venta.letra} {venta.numero or 0:08d}"
+        )
+        punto_texto = f"{punto.codigo} - {punto.descripcion}" if punto else "SIN PUNTO"
+        caja_texto = f"{caja.codigo} - {caja.descripcion}" if caja else "SIN CAJA"
+        documentos.append(
+            {
+                "id": f"FACTURA:{venta.id}",
+                "tipo": "FACTURA",
+                "fecha": venta.fecha_realizacion,
+                "comprobante": comprobante,
+                "documento_origen": None,
+                "cliente": socio.razon_social,
+                "punto_venta": punto_texto,
+                "caja": caja_texto,
+                "modalidad": "PRODUCTOS",
+                "motivo": None,
+                "importe": venta_original,
+                "costo": costo_original,
+                "margen": venta_original - costo_original,
+                "margen_porcentual": importe(
+                    ((venta_original - costo_original) / venta_original * 100)
+                    if venta_original
+                    else 0
+                ),
+            }
+        )
+        for nota in notas:
+            if not (inicio <= nota.fecha_realizacion < fin):
+                continue
+            costo_nota = costos_notas[nota.id]
+            importe_nota = -importe(nota.total_bruto)
+            costo_nota_firmado = -costo_nota
+            documentos.append(
+                {
+                    "id": f"NOTA_CREDITO:{nota.id}",
+                    "tipo": "NOTA_CREDITO",
+                    "fecha": nota.fecha_realizacion,
+                    "comprobante": f"NC {nota.numero:08d}",
+                    "documento_origen": comprobante,
+                    "cliente": socio.razon_social,
+                    "punto_venta": punto_texto,
+                    "caja": caja_texto,
+                    "modalidad": nota.modalidad,
+                    "motivo": nota.motivo,
+                    "importe": importe_nota,
+                    "costo": costo_nota_firmado,
+                    "margen": importe_nota - costo_nota_firmado,
+                    "margen_porcentual": importe(
+                        ((importe_nota - costo_nota_firmado) / importe_nota * 100)
+                        if importe_nota
+                        else 0
+                    ),
+                }
+            )
+        ventas.append(
+            {
+                "id": venta.id,
+                "fecha": venta.fecha_realizacion,
+                "comprobante": comprobante,
+                "cliente_id": socio.id,
+                "cliente": socio.razon_social,
+                "punto_venta": punto_texto,
+                "caja": caja_texto,
+                "cantidad_articulos": cantidad_items,
+                "venta_original": venta_original,
+                "venta_bruta": total,
+                "notas_credito": credito,
+                "costo_bruto": costo_total,
+                "margen_bruto": margen,
+                "margen_porcentual": importe((margen / total * 100) if total else 0),
+            }
+        )
+    notas_periodo_consulta = (
+        select(NotaCredito, VentaDocumento, Socio, PuntoVenta, CajaVenta)
+        .join(VentaDocumento, VentaDocumento.id == NotaCredito.venta_id)
+        .join(Socio, Socio.id == NotaCredito.socio_id)
+        .outerjoin(PuntoVenta, PuntoVenta.id == VentaDocumento.punto_venta_id)
+        .outerjoin(CajaVenta, CajaVenta.id == VentaDocumento.caja_id)
+        .where(
+            NotaCredito.tipo == "CLIENTE",
+            NotaCredito.estado == "CONFIRMADO",
+            NotaCredito.fecha_realizacion >= inicio,
+            NotaCredito.fecha_realizacion < fin,
+        )
+        .order_by(NotaCredito.fecha_realizacion, NotaCredito.numero)
+        .limit(limite)
+    )
+    if cliente_id:
+        notas_periodo_consulta = notas_periodo_consulta.where(
+            NotaCredito.socio_id == cliente_id
+        )
+    if articulo_id:
+        detalle_nota_filtro = aliased(VentaDocumentoDetalle)
+        notas_periodo_consulta = notas_periodo_consulta.where(
+            select(detalle_nota_filtro.id)
+            .where(
+                detalle_nota_filtro.venta_id == VentaDocumento.id,
+                detalle_nota_filtro.articulo_id == articulo_id,
+            )
+            .exists()
+        )
+    ids_documentos = {documento["id"] for documento in documentos}
+    for nota, venta, socio, punto, caja in (await sesion.execute(notas_periodo_consulta)).all():
+        id_documento = f"NOTA_CREDITO:{nota.id}"
+        if id_documento in ids_documentos:
+            continue
+        costo_nota = importe(
             await sesion.scalar(
                 select(
                     func.coalesce(
@@ -182,30 +412,38 @@ async def ventas_margenes(
                     VentaDocumentoDetalle,
                     VentaDocumentoDetalle.id == NotaCreditoDetalle.venta_detalle_id,
                 )
-                .join(NotaCredito, NotaCredito.id == NotaCreditoDetalle.nota_credito_id)
-                .where(
-                    NotaCredito.venta_id == venta.id,
-                    NotaCredito.estado == "CONFIRMADO",
-                )
+                .where(NotaCreditoDetalle.nota_credito_id == nota.id)
             )
         )
-        venta_original = importe(venta.total_bruto)
-        total = importe(venta_original - credito)
-        costo_total = importe(Decimal(costo_bruto) - costo_devuelto)
-        margen = total - costo_total
-        ventas.append(
+        comprobante_origen = (
+            f"{venta.letra} {punto.codigo}-{venta.numero or 0:08d}"
+            if punto
+            else f"{venta.letra} {venta.numero or 0:08d}"
+        )
+        importe_nota = -importe(nota.total_bruto)
+        costo_nota_firmado = -costo_nota
+        documentos.append(
             {
-                "id": venta.id,
-                "fecha": venta.fecha_realizacion,
-                "comprobante": f"{venta.letra} {venta.numero or 0:08d}",
-                "cliente_id": socio.id,
+                "id": id_documento,
+                "tipo": "NOTA_CREDITO",
+                "fecha": nota.fecha_realizacion,
+                "comprobante": f"NC {nota.numero:08d}",
+                "documento_origen": comprobante_origen,
                 "cliente": socio.razon_social,
-                "venta_original": venta_original,
-                "venta_bruta": total,
-                "notas_credito": credito,
-                "costo_bruto": costo_total,
-                "margen_bruto": margen,
-                "margen_porcentual": importe((margen / total * 100) if total else 0),
+                "punto_venta": (
+                    f"{punto.codigo} - {punto.descripcion}" if punto else "SIN PUNTO"
+                ),
+                "caja": f"{caja.codigo} - {caja.descripcion}" if caja else "SIN CAJA",
+                "modalidad": nota.modalidad,
+                "motivo": nota.motivo,
+                "importe": importe_nota,
+                "costo": costo_nota_firmado,
+                "margen": importe_nota - costo_nota_firmado,
+                "margen_porcentual": importe(
+                    ((importe_nota - costo_nota_firmado) / importe_nota * 100)
+                    if importe_nota
+                    else 0
+                ),
             }
         )
     total_venta = importe(sum((x["venta_bruta"] for x in ventas), Decimal(0)))
@@ -221,4 +459,5 @@ async def ventas_margenes(
         "margen_bruto": total_margen,
         "margen_porcentual": importe((total_margen / total_venta * 100) if total_venta else 0),
         "ventas": ventas,
+        "documentos": sorted(documentos, key=lambda documento: documento["fecha"]),
     }

@@ -1,6 +1,7 @@
 "use client";
 
 import { apiFetch } from "@/api";
+import TablaOrdenable from "@/components/TablaOrdenable";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 const apiUrl =
   process.env.NEXT_PUBLIC_API_URL ?? "/api/v1";
@@ -127,7 +128,7 @@ export default function MaestroConfiguracionArticulos({
           </p>
         )}
         <div className="mt-5 rounded-2xl border border-[var(--borde)] bg-white p-4">
-          <table className="w-full text-left text-sm">
+          <TablaOrdenable className="w-full text-left text-sm">
             <thead>
               <tr className="text-xs uppercase text-[var(--texto-suave)]">
                 {!esClasificador && <th className="p-3">Codigo</th>}
@@ -162,7 +163,7 @@ export default function MaestroConfiguracionArticulos({
                 </tr>
               ))}
             </tbody>
-          </table>
+          </TablaOrdenable>
         </div>
         {abierto && (
           <div

@@ -7,6 +7,8 @@ import BuscadorArticulo, {
   ArticuloBuscado,
 } from "@/components/BuscadorArticulo";
 import SelectorModoImpresion, { useModoImpresion } from "@/components/SelectorModoImpresion";
+import { formatearCantidad, formatearMoneda } from "@/formato";
+import TablaOrdenable from "@/components/TablaOrdenable";
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api/v1";
 type Lista = { id: string; nombre: string; activa: boolean };
@@ -190,7 +192,7 @@ export default function EtiquetasPrecios() {
             </span>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
+            <TablaOrdenable className="w-full text-left text-sm">
               <thead>
                 <tr>
                   <th className="p-3">Articulo</th>
@@ -207,12 +209,12 @@ export default function EtiquetasPrecios() {
                       <b>{x.codigo}</b>
                       <small className="block">{x.descripcion}</small>
                     </td>
-                    <td className="font-semibold">${x.precio.toFixed(2)}</td>
+                    <td className="font-semibold">{formatearMoneda(x.precio)}</td>
                     <td>
                       {x.preciosAlternativos.length
                         ? x.preciosAlternativos.map((alternativo) => (
                             <small className="block" key={`${alternativo.lista}-${alternativo.cantidadMinima}`}>
-                              Desde {alternativo.cantidadMinima}: {alternativo.lista} ${alternativo.precio.toFixed(2)}
+                              Desde {formatearCantidad(alternativo.cantidadMinima)}: {alternativo.lista} {formatearMoneda(alternativo.precio)}
                             </small>
                           ))
                         : "—"}
@@ -251,7 +253,7 @@ export default function EtiquetasPrecios() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </TablaOrdenable>
             {!etiquetas.length && (
               <p className="p-8 text-center text-sm text-[var(--texto-suave)]">
                 Agregue productos para preparar la impresion.
@@ -319,7 +321,7 @@ function EtiquetaVisual({
       </strong>
       {etiqueta.preciosAlternativos.map((alternativo) => (
         <p className="etiqueta-base" key={`${alternativo.lista}-${alternativo.cantidadMinima}`}>
-          DESDE {alternativo.cantidadMinima}: {alternativo.lista} ${alternativo.precio.toLocaleString("es-AR", {
+          DESDE {formatearCantidad(alternativo.cantidadMinima)}: {alternativo.lista} ${alternativo.precio.toLocaleString("es-AR", {
             minimumFractionDigits: 2,
             maximumFractionDigits: 2,
           })}

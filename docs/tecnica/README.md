@@ -2,6 +2,9 @@
 
 TaiLil ERP es un monolito modular con API FastAPI/SQLAlchemy, frontend Next.js/React y PostgreSQL. La API publica recursos bajo `/api/v1`; Alembic es el unico mecanismo autorizado para evolucionar el esquema.
 
+- [Estado de implementacion e integridad](estado-implementacion-e-integridad.md)
+- Revisión Alembic vigente: `20260822_0045 (head)`.
+
 ## Plataforma
 
 - [Arquitectura](arquitectura.md)
@@ -22,6 +25,7 @@ TaiLil ERP es un monolito modular con API FastAPI/SQLAlchemy, frontend Next.js/R
 - [Busquedas en maestros](patron-busquedas-maestros.md)
 - [Clasificadores, almacenes, stock e inventarios](clasificadores-almacenes-stock.md)
 - [Compras](compras.md)
+- [Rotacion de compras y MRP](compras-rotacion-mrp.md)
 - [Listas de precios](listas-de-precios.md)
 - [Punto de venta](punto-de-venta.md)
 - [Etiquetas](etiquetas-precios.md)

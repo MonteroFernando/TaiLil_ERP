@@ -162,9 +162,9 @@ export default function BuscadorArticulo({
         }}
       />
       {abierto && (
-        <div className="absolute z-40 mt-1 max-h-72 w-full overflow-y-auto rounded-xl border bg-white p-1 shadow-xl">
+        <div role="listbox" aria-label="Resultados de artículos" className="absolute z-40 mt-1 max-h-72 w-full overflow-y-auto rounded-xl border bg-white p-1 shadow-xl">
           {resultados.length ? resultados.map((x, posicion) => (
-            <button type="button" key={x.id} onClick={() => elegir(x)} className={`block w-full rounded-lg px-3 py-2 text-left text-sm ${indice === posicion ? "bg-[var(--marca-clara)]" : "hover:bg-[var(--fondo)]"}`}>
+            <button type="button" role="option" aria-selected={indice === posicion} key={x.id} onClick={() => elegir(x)} className={`block w-full rounded-lg px-3 py-2 text-left text-sm ${indice === posicion ? "bg-[var(--marca-clara)]" : "hover:bg-[var(--fondo)]"}`}>
               <b className="font-mono">{x.codigo}</b> · {x.descripcion}
             </button>
           )) : <p className="p-3 text-sm text-[var(--texto-suave)]">Sin coincidencias</p>}

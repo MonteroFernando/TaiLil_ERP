@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -6,6 +6,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     Index,
@@ -352,6 +353,9 @@ class AperturaCaja(Base):
     )
     estado: Mapped[str] = mapped_column(String(20), default="ABIERTA", index=True)
     efectivo_inicial: Mapped[Decimal] = mapped_column(Numeric(18, 2))
+    periodo_operativo: Mapped[date] = mapped_column(
+        Date, server_default=func.current_date(), index=True
+    )
     fecha_apertura: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), index=True
     )
@@ -742,6 +746,7 @@ class NotaCredito(Base):
     )
     almacen_id: Mapped[UUID] = mapped_column(ForeignKey("almacenes.id", ondelete="RESTRICT"))
     numero_externo: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    modalidad: Mapped[str] = mapped_column(String(20), default="PRODUCTOS")
     motivo: Mapped[str] = mapped_column(String(250))
     afecta_stock: Mapped[bool] = mapped_column(Boolean, default=True)
     total_bruto: Mapped[Decimal] = mapped_column(Numeric(18, 2))
@@ -754,6 +759,12 @@ class NotaCredito(Base):
     )
     pago_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("pagos_documentos.id", ondelete="RESTRICT"), nullable=True, unique=True
+    )
+    devolucion_cobro_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("cobros_documentos.id", ondelete="RESTRICT"), nullable=True, unique=True
+    )
+    movimiento_caja_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("movimientos_caja.id", ondelete="RESTRICT"), nullable=True, unique=True
     )
     usuario_id: Mapped[UUID] = mapped_column(ForeignKey("usuarios.id", ondelete="RESTRICT"))
     fecha_realizacion: Mapped[datetime] = mapped_column(

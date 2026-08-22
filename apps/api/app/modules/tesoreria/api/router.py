@@ -1,5 +1,5 @@
 # ruff: noqa: E501
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -41,7 +41,11 @@ from app.modules.tesoreria.infrastructure.models import (
     PagoDocumento,
     PagoMedioPago,
 )
-from app.modules.usuarios.api.dependencias import obtener_usuario_actual, requerir_permiso
+from app.modules.usuarios.api.dependencias import (
+    obtener_usuario_actual,
+    requerir_alguno_de,
+    requerir_permiso,
+)
 from app.modules.usuarios.infrastructure.models import Usuario
 
 router = APIRouter(prefix="/tesoreria", tags=["Tesoreria"])
@@ -808,9 +812,19 @@ async def totales_apertura(apertura_id: UUID, sesion: AsyncSession) -> dict:
 
 
 @router.get(
-    "/cajas/{apertura_id}/control", dependencies=[Depends(requerir_permiso("tesoreria.ver"))]
+    "/cajas/{apertura_id}/control",
+    dependencies=[Depends(requerir_alguno_de("tesoreria.ver", "ventas.caja.cerrar"))],
 )
-async def control_caja(apertura_id: UUID, sesion: AsyncSession = Depends(obtener_sesion)) -> dict:
+async def control_caja(
+    apertura_id: UUID,
+    usuario: Usuario = Depends(obtener_usuario_actual),
+    sesion: AsyncSession = Depends(obtener_sesion),
+) -> dict:
+    apertura = await sesion.get(AperturaCaja, apertura_id)
+    if apertura is None:
+        raise HTTPException(404, "La apertura de caja no existe")
+    if not usuario.es_administrador and apertura.usuario_id != usuario.id:
+        raise HTTPException(403, "Solo puede controlar su propia caja")
     return await totales_apertura(apertura_id, sesion)
 
 
@@ -902,7 +916,7 @@ async def listar_arqueos(
 @router.post(
     "/cajas/{apertura_id}/cerrar",
     status_code=201,
-    dependencies=[Depends(requerir_permiso("tesoreria.gestionar"))],
+    dependencies=[Depends(requerir_alguno_de("tesoreria.gestionar", "ventas.caja.cerrar"))],
 )
 async def cerrar_caja(
     apertura_id: UUID,
@@ -915,6 +929,15 @@ async def cerrar_caja(
     )
     if apertura is None or apertura.estado != "ABIERTA":
         raise HTTPException(409, "La caja no esta abierta")
+    if not usuario.es_administrador and apertura.usuario_id != usuario.id:
+        raise HTTPException(403, "Solo puede cerrar su propia caja")
+    if await sesion.scalar(
+        select(VentaDocumento.id).where(
+            VentaDocumento.apertura_caja_id == apertura_id,
+            VentaDocumento.estado == "BORRADOR",
+        ).limit(1)
+    ):
+        raise HTTPException(409, "Debe confirmar o eliminar los borradores antes de cerrar la caja")
     if await sesion.scalar(select(CierreCaja.id).where(CierreCaja.apertura_caja_id == apertura_id)):
         raise HTTPException(409, "La apertura ya posee un cierre")
     control = await totales_apertura(apertura_id, sesion)
@@ -967,17 +990,32 @@ async def cerrar_caja(
 
 @router.get("/cajas/cierres/historial", dependencies=[Depends(requerir_permiso("tesoreria.ver"))])
 async def historial_cierres(
-    limite: int = Query(100, ge=1, le=500), sesion: AsyncSession = Depends(obtener_sesion)
+    periodo: date | None = None,
+    desde: date | None = None,
+    hasta: date | None = None,
+    limite: int = Query(500, ge=1, le=1000),
+    sesion: AsyncSession = Depends(obtener_sesion),
 ) -> list[dict]:
+    if desde and hasta and desde > hasta:
+        raise HTTPException(400, "La fecha desde no puede ser posterior a la fecha hasta")
+    consulta = (
+        select(CierreCaja, AperturaCaja, CajaVenta, PuntoVenta, Usuario)
+        .join(AperturaCaja, AperturaCaja.id == CierreCaja.apertura_caja_id)
+        .join(CajaVenta, CajaVenta.id == AperturaCaja.caja_id)
+        .join(PuntoVenta, PuntoVenta.id == CajaVenta.punto_venta_id)
+        .join(Usuario, Usuario.id == CierreCaja.usuario_id)
+    )
+    if periodo:
+        consulta = consulta.where(AperturaCaja.periodo_operativo == periodo)
+    if desde:
+        consulta = consulta.where(AperturaCaja.periodo_operativo >= desde)
+    if hasta:
+        consulta = consulta.where(AperturaCaja.periodo_operativo <= hasta)
     filas = (
         await sesion.execute(
-            select(CierreCaja, AperturaCaja, CajaVenta, PuntoVenta, Usuario)
-            .join(AperturaCaja, AperturaCaja.id == CierreCaja.apertura_caja_id)
-            .join(CajaVenta, CajaVenta.id == AperturaCaja.caja_id)
-            .join(PuntoVenta, PuntoVenta.id == CajaVenta.punto_venta_id)
-            .join(Usuario, Usuario.id == CierreCaja.usuario_id)
-            .order_by(CierreCaja.fecha.desc())
-            .limit(limite)
+            consulta.order_by(AperturaCaja.periodo_operativo.desc(), CierreCaja.fecha.desc()).limit(
+                limite
+            )
         )
     ).all()
     resultado = []
@@ -996,6 +1034,7 @@ async def historial_cierres(
                 "caja": caja.codigo,
                 "punto_venta": punto.codigo,
                 "usuario": u.nombre_usuario,
+                "periodo_operativo": a.periodo_operativo,
                 "fecha_apertura": a.fecha_apertura,
                 "fecha_cierre": c.fecha,
                 "cantidad_ventas": c.cantidad_ventas,
