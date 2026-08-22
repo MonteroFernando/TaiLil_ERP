@@ -13,9 +13,26 @@ const formatoMoneda = new Intl.NumberFormat("es-AR", {
   maximumFractionDigits: 2,
 });
 
+function convertirNumero(valor: ValorNumerico): number {
+  if (typeof valor === "number") return Number.isFinite(valor) ? valor : 0;
+  if (valor === null || valor === undefined || valor === "") return 0;
+  const limpio = String(valor).trim().replace(/ARS|\$/gi, "").replaceAll(" ", "");
+  const ultimaComa = limpio.lastIndexOf(",");
+  const ultimoPunto = limpio.lastIndexOf(".");
+  let normalizado = limpio;
+  if (ultimaComa >= 0 && ultimoPunto >= 0) {
+    normalizado = ultimaComa > ultimoPunto
+      ? limpio.replaceAll(".", "").replace(",", ".")
+      : limpio.replaceAll(",", "");
+  } else if (ultimaComa >= 0) {
+    normalizado = limpio.replace(",", ".");
+  }
+  const numero = Number(normalizado);
+  return Number.isFinite(numero) ? numero : 0;
+}
+
 export function redondearCantidad(valor: ValorNumerico): number {
-  const numero = Number(valor ?? 0);
-  if (!Number.isFinite(numero)) return 0;
+  const numero = convertirNumero(valor);
   return Math.round(numero * 1000) / 1000;
 }
 
@@ -25,8 +42,7 @@ export function cantidadParaEntrada(valor: ValorNumerico): string {
 }
 
 export function formatearCantidad(valor: ValorNumerico): string {
-  const numero = Number(valor ?? 0);
-  return formatoCantidad.format(Number.isFinite(numero) ? numero : 0);
+  return formatoCantidad.format(convertirNumero(valor));
 }
 
 export function formatearNumero(valor: ValorNumerico): string {
@@ -34,6 +50,5 @@ export function formatearNumero(valor: ValorNumerico): string {
 }
 
 export function formatearMoneda(valor: ValorNumerico): string {
-  const numero = Number(valor ?? 0);
-  return formatoMoneda.format(Number.isFinite(numero) ? numero : 0);
+  return formatoMoneda.format(convertirNumero(valor));
 }

@@ -60,7 +60,7 @@ DEFINICIONES = [
         "Ventas del dia",
         "Cantidad vendida durante la jornada",
         "ventas",
-        "cantidad",
+        "dinero",
         "ventas.ver",
     ),
     (
@@ -158,10 +158,10 @@ async def obtener_dashboard(
         )
         efectivo += cobros_efectivo
     valores = {
-        "ventas_dia": f"${ventas_dia:.2f}",
+        "ventas_dia": float(ventas_dia or 0),
         "borradores_pos": int(borradores or 0),
         "caja_abierta": "ABIERTA" if apertura else "SIN APERTURA",
-        "efectivo_caja": f"${efectivo:.2f}",
+        "efectivo_caja": float(efectivo or 0),
     }
     for tarjeta in tarjetas:
         if tarjeta.codigo in valores:

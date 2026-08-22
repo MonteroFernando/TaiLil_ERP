@@ -76,6 +76,7 @@ export default function NavegacionPrincipal({children}:{children:React.ReactNode
     )}
     <button aria-label="Alternar menú" onClick={()=>setAbierto(!abierto)}>{abierto?"‹":"›"}</button>
    </header>
+   <a className={`erp-manual ${ruta==="/manual"?"erp-manual-activo":""}`} href="/manual" title={!abierto?"Manual de usuario":undefined}><span className="erp-manual-cerebro" aria-hidden="true">🧠</span>{abierto&&<span><b>Manual</b><small>Ayuda según tus permisos</small></span>}</a>
    <nav>{menu.map((item,indice)=>{const anterior=indice?menu[indice-1].grupo:null;return <div key={item.href}>{abierto&&item.grupo!==anterior&&<p className="erp-grupo">{item.grupo}</p>}<a className={`erp-opcion ${ruta===item.href||ruta.startsWith(`${item.href}/`)?"erp-opcion-activa":""}`} href={item.href} title={!abierto?item.nombre:undefined}><span className="erp-icono">{item.icono}</span>{abierto&&<span><b>{item.nombre}</b><small>{item.detalle}</small></span>}</a></div>})}</nav>
    <button className="erp-salir" onClick={salir}><span className="erp-icono">×</span>{abierto&&<span>Cerrar sesión</span>}</button>
   </aside>

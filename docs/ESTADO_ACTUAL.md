@@ -27,6 +27,7 @@ La autenticación utiliza sesiones revocables y contraseñas Argon2id. Los permi
 - El perfil **CAJERO** puede operar y cerrar solamente su propia caja.
 - La emisión de notas de crédito exige `ventas.notas_credito.emitir`, incluso para usuarios con otras tareas de ventas.
 - Informes exige el permiso independiente `informes.ver`.
+- El botón **🧠 Manual** ofrece ayuda visual, búsqueda y PDF personalizado; sus capítulos se filtran con estos mismos permisos.
 
 Véase [Permisos y perfiles](funcional/permisos-y-perfiles.md).
 

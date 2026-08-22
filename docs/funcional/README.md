@@ -3,6 +3,7 @@
 Esta seccion explica el uso diario del sistema, las reglas del negocio y el resultado esperado de cada operacion.
 
 - [Guia operativa integral](guia-operativa-integral.md): recorrido completo desde la configuracion hasta el cierre y los informes.
+- [Manual de usuario integrado](manual-de-usuario-integrado.md): ayuda visual filtrada por permisos y PDF personalizado.
 - [Estado actual consolidado](../ESTADO_ACTUAL.md): alcance vigente y enlaces de referencia.
 
 ## Administracion y maestros
