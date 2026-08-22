@@ -42,3 +42,6 @@ Al incorporar o cambiar un flujo:
 
 Las vistas deben usar datos ficticios y no deben copiar información sensible de una base productiva.
 
+La captura `tesoreria` se mantiene alineada con el resumen real de cuentas corrientes: posicion filtrada, limite asignado, credito ocupado, porcentaje y remanente. El texto asociado diferencia el remanente del limite general mostrado por Tesoreria de la validacion operativa adicional que realiza el POS.
+
+Las capturas `tesoreria` e `informes` incorporan respectivamente la clasificacion de retiros y el mapa de trazabilidad. Los pasos del catalogo describen el pago a proveedor sin aplicar, su conciliacion posterior y la navegacion desde el informe hacia la cuenta relacionada.

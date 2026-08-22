@@ -16,6 +16,10 @@ Muestra entradas, salidas y flujo neto real, ordenado cronologicamente. Incluye:
 
 Una venta a cuenta corriente no es una entrada de dinero hasta que exista un cobro. Del mismo modo, el informe no confunde facturacion con movimiento financiero.
 
+Cada fila del flujo informa fecha y hora, origen, usuario que registro, caja, punto de venta, socio relacionado, medio, concepto, referencia, entrada o salida. **Ver trazabilidad** abre el detalle y un mapa de relacion `Caja → Movimiento → Socio → Comprobantes`. En pagos a proveedores muestra cada factura conciliada y su importe; si el pago continua sin aplicar, lo indica expresamente y permite abrir la cuenta del proveedor para continuar la conciliacion.
+
+Los gastos directos aparecen diferenciados de los pagos a proveedores. Un retiro destinado a proveedor se informa una sola vez como pago, nunca tambien como movimiento manual, evitando duplicar las salidas.
+
 ## Ventas y margenes
 
 Funciona como historico de ventas: muestra una fila por comprobante con fecha y hora, numero, cliente, punto de venta, caja, cantidad de articulos distintos, importe original, notas de credito, importe neto, costo historico neto, margen bruto y porcentaje sobre venta. El encabezado de cada columna permite ordenar las filas cargadas.
@@ -54,6 +58,8 @@ El boton general de exportacion aparece como el icono verde de Excel en el encab
 - inventarios;
 - historico de movimientos de stock;
 - historico de ventas en Tesoreria.
+
+La hoja **Flujo de dinero** del informe completo incorpora usuario, caja, punto de venta, socio, referencia y comprobantes relacionados. Los importes permanecen numericos con formato monetario.
 
 No aparece en formularios, modales, configuraciones, POS, etiquetas ni grillas auxiliares. En particular, las etiquetas no se exportan como tabla.
 

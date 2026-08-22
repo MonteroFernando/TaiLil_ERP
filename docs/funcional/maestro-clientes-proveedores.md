@@ -38,6 +38,10 @@ Los proveedores anteriores se conservan. Como no tenian documento fiscal, quedan
 
 ## Cuenta padre y saldos agrupados
 
-Un socio puede vincularse opcionalmente con otro socio que actua como cuenta padre. Los movimientos y saldos continuaran perteneciendo a cada cuenta individual, pero los informes y la cuenta corriente podran consolidarlos recorriendo la jerarquia.
+Un socio puede vincularse opcionalmente con otro socio que actua como cuenta padre. Los comprobantes siguen identificando al cliente o proveedor que los originó, pero Tesorería agrupa la deuda, los cobros, los pagos y los saldos disponibles en la cuenta padre. Al abrir la cuenta padre se ven y se pueden conciliar los documentos de todo el grupo; al abrir una hija se ve únicamente su actividad.
+
+En clientes, la autorización para comprar a cuenta corriente permanece en cada cuenta hija: su límite total, límite por período, vencimiento y crédito ocupado se controlan con la deuda individual de ese cliente. La vinculación con una cuenta padre no comparte ni amplía esos límites.
+
+La agrupación es reversible. Al desvincular una cuenta hija, sus comprobantes y su deuda dejan de incluirse en la cuenta padre y vuelven a presentarse automáticamente en la cuenta individual. No se trasladan ni duplican movimientos durante la vinculación o desvinculación.
 
 No se permite que un socio sea su propio padre ni que se formen ciclos. Una cuenta padre puede agrupar clientes, proveedores o socios que cumplan ambos roles.

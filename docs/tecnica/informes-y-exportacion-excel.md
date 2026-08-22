@@ -60,6 +60,12 @@ Los tipos se conservan explicitamente:
 
 El exportador general solo toma tablas visibles con `data-exportar-excel="true"`. Es un mecanismo opt-in: agregar una tabla a una pantalla no la vuelve exportable automaticamente. `ExportarTablasPagina` detecta esas tablas y monta mediante portal un boton con icono de Excel en el encabezado principal; no utiliza posicion flotante. Actualmente se habilitan articulos, ultimos documentos y rotacion/MRP de compras, proyeccion e historicos de stock, inventarios e historico de ventas de Tesoreria. POS, Etiquetas, formularios, configuraciones y modales quedan excluidos.
 
+## Trazabilidad del flujo
+
+`GET /api/v1/informes/flujo-dinero` enriquece cobros, pagos y movimientos de caja con identificador, tipo de origen, usuario, apertura, caja, punto de venta, periodo operativo, socio, categoria, referencia y `relaciones`. Las relaciones activas se obtienen de `imputaciones_cobros_ventas` o `imputaciones_pagos_facturas` y contienen UUID, comprobante e importe aplicado.
+
+La API carga usuarios, contextos de caja, socios y relaciones en consultas agrupadas para evitar una consulta por cada fila. El frontend representa esos datos en un modal con mapa de relacion y enlace a la cuenta corriente correspondiente. La exportacion completa agrega las mismas columnas y serializa los importes relacionados como texto descriptivo, manteniendo la columna principal de importe como valor monetario numerico.
+
 ## Ordenamiento interactivo
 
 `apps/web/src/components/TablaOrdenable.tsx` centraliza el ordenamiento de los listados extensos. Conserva un orden estable y aplica un ciclo ascendente, descendente y original al pulsar cada encabezado. El comparador reconoce fechas localizadas `es-AR`, numeros con separadores de miles, decimales, moneda y porcentajes; para texto utiliza `Intl.Collator` con comparacion numerica de codigos.

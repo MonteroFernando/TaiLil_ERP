@@ -25,6 +25,10 @@ El POS muestra siempre deuda, saldo a favor, credito autorizado y disponible tot
 
 ## Conciliacion
 
-Un cobro puede conciliarse con varias ventas y una venta puede recibir varios cobros. Es posible conciliar al registrar el cobro o posteriormente desde **Tesoreria → Cuentas corrientes → Historial y conciliacion**. Una anulacion exige motivo y conserva toda la auditoria.
+Un cobro puede conciliarse con varias ventas y una venta puede recibir varios cobros. Es posible conciliar al registrar el cobro o posteriormente desde **Tesoreria → Cuentas corrientes → Historial y conciliacion**. Si una primera aplicacion fue parcial, el mismo cobro puede volver a aplicarse sobre la misma venta hasta agotar alguno de los dos saldos; cada aplicacion conserva su propio importe, fecha y usuario. Una anulacion exige motivo y conserva toda la auditoria.
+
+El listado general de Tesoreria muestra el limite total asignado, la deuda que lo ocupa, el porcentaje utilizado y el remanente general. Los totales de cabecera se recalculan con las cuentas visibles despues de buscar o filtrar. Este indicador no reemplaza el disponible operativo del POS, que tambien considera el limite del periodo y la antiguedad de la deuda.
+
+Si el cliente está vinculado con una cuenta padre, Tesorería agrupa allí la deuda financiera del grupo. Esta vinculación no modifica la autorización de crédito: cada hijo conserva su configuración y se valida con su propia deuda, límites y vencimientos.
 
 Para el procedimiento completo consultar [Tesoreria](tesoreria.md).

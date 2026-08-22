@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import HTMLResponse
 from sqlalchemy import Sequence, delete, func, or_, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.normalizacion import normalizar_mayusculas
@@ -62,6 +63,7 @@ from app.modules.articulos.api.schemas import (
     ListaPrecioVista,
     MovimientoStockDetalleVista,
     MovimientoStockVista,
+    PosMedioPagoCrear,
     PosVentaCrear,
     PosVentaLineaVista,
     PosVentaVista,
@@ -2380,6 +2382,29 @@ def importe_dos_decimales(valor: Decimal) -> Decimal:
     return valor.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
+def descontar_vuelto_del_efectivo(
+    pagos: list[PosMedioPagoCrear], vuelto: Decimal
+) -> list[PosMedioPagoCrear]:
+    """Devuelve los medios netos retenidos después de entregar el vuelto."""
+    restante = importe_dos_decimales(vuelto)
+    resultado: list[PosMedioPagoCrear] = []
+    for pago in pagos:
+        if pago.medio != "EFECTIVO" or restante <= 0:
+            resultado.append(pago)
+            continue
+        descuento = min(pago.importe, restante)
+        retenido = importe_dos_decimales(pago.importe - descuento)
+        restante = importe_dos_decimales(restante - descuento)
+        if retenido > 0:
+            resultado.append(pago.model_copy(update={"importe": retenido}))
+    if restante > 0:
+        raise HTTPException(
+            status_code=400,
+            detail="El vuelto no puede superar el efectivo ingresado",
+        )
+    return resultado
+
+
 async def descuento_precio_pos(
     articulo: Articulo,
     lista: ListaPrecio,
@@ -2720,9 +2745,42 @@ async def crear_venta_pos(
         sum((pago.importe for pago in pagos_cuenta_corriente), Decimal("0"))
     )
     total_pagado = importe_dos_decimales(sum((p.importe for p in pagos_confirmados), Decimal("0")))
-    if total_pagado > total_bruto:
-        raise HTTPException(status_code=400, detail="Los pagos superan el total de la venta")
-    saldo_pendiente = importe_dos_decimales(total_bruto - total_pagado)
+    efectivo_ingresado = importe_dos_decimales(
+        sum((pago.importe for pago in pagos_confirmados if pago.medio == "EFECTIVO"), Decimal("0"))
+    )
+    excedente = max(Decimal("0.00"), importe_dos_decimales(total_pagado - total_bruto))
+    vuelto = Decimal("0.00")
+    saldo_favor_generado = Decimal("0.00")
+    if excedente > 0:
+        if importe_cuenta_corriente > 0:
+            raise HTTPException(
+                status_code=400,
+                detail="No se puede combinar un sobrepago con CUENTA CORRIENTE",
+            )
+        if datos.destino_excedente is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Indique si el excedente se entrega como vuelto o queda a favor",
+            )
+        if excedente > efectivo_ingresado:
+            raise HTTPException(
+                status_code=400,
+                detail="Solo el efectivo ingresado puede originar vuelto o saldo a favor",
+            )
+        if datos.destino_excedente == "VUELTO":
+            vuelto = excedente
+            pagos_confirmados = descontar_vuelto_del_efectivo(pagos_confirmados, vuelto)
+            total_pagado = importe_dos_decimales(
+                sum((pago.importe for pago in pagos_confirmados), Decimal("0"))
+            )
+        else:
+            saldo_favor_generado = excedente
+    elif datos.destino_excedente is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="No existe un excedente de efectivo para asignar",
+        )
+    saldo_pendiente = max(Decimal("0.00"), importe_dos_decimales(total_bruto - total_pagado))
     aplicaciones_saldo_favor: list[tuple[CobroDocumento, Decimal]] = []
     if datos.cliente_id is not None and saldo_pendiente > 0:
         aplicaciones_saldo_favor = await preparar_imputaciones_saldo_favor(
@@ -2890,14 +2948,17 @@ async def crear_venta_pos(
             ImputacionCobroVenta(
                 cobro_id=cobro.id,
                 venta_id=venta.id,
-                importe=total_pagado,
+                importe=min(total_pagado, total_bruto),
                 estado="ACTIVA",
                 usuario_id=usuario.id,
             )
         )
     await sesion.commit()
     await sesion.refresh(venta)
-    return await venta_pos_vista(venta, sesion)
+    vista = await venta_pos_vista(venta, sesion)
+    vista.vuelto = vuelto
+    vista.saldo_favor_generado = saldo_favor_generado
+    return vista
 
 
 @router.get(
@@ -3012,7 +3073,9 @@ async def imprimir_venta_pos(
 @router.get(
     "/pos/ventas/{venta_id}",
     response_model=PosVentaVista,
-    dependencies=[Depends(requerir_alguno_de("ventas.ver", "ventas.caja.operar"))],
+    dependencies=[
+        Depends(requerir_alguno_de("ventas.ver", "ventas.caja.operar", "tesoreria.ver"))
+    ],
 )
 async def obtener_venta_pos(
     venta_id: UUID, sesion: AsyncSession = Depends(obtener_sesion)
@@ -3073,6 +3136,10 @@ async def documento_compra_vista(
         estado=documento.estado,
         fecha_realizacion=documento.fecha_realizacion,
         numero_proveedor=documento.numero_proveedor if es_factura else None,
+        letra=documento.letra if es_factura else None,
+        punto_emision=documento.punto_emision if es_factura else None,
+        numero_factura=documento.numero_factura if es_factura else None,
+        comprobante_proveedor=documento.comprobante_proveedor if es_factura else None,
         ingreso_id=documento.ingreso_id if es_factura else None,
         politica_costo=documento.politica_costo if es_factura else None,
         total_bruto=documento.total_bruto if es_factura else None,
@@ -3218,6 +3285,17 @@ async def crear_factura_compra(
         ):
             raise HTTPException(400, "Las cantidades deben coincidir con el ingreso")
     numero = await sesion.scalar(select(Sequence("secuencia_facturas_compra").next_value()))
+    factura_existente = await sesion.scalar(
+        select(FacturaCompra.id).where(
+            FacturaCompra.proveedor_id == proveedor.id,
+            FacturaCompra.letra == datos.letra,
+            FacturaCompra.punto_emision == datos.punto_emision,
+            FacturaCompra.numero_factura == datos.numero_factura,
+        )
+    )
+    if factura_existente is not None:
+        raise HTTPException(409, "La factura del proveedor ya fue registrada")
+    comprobante_proveedor = f"{datos.letra} {datos.punto_emision}-{datos.numero_factura}"
     movimiento = (
         None
         if ingreso
@@ -3227,7 +3305,10 @@ async def crear_factura_compra(
     )
     factura = FacturaCompra(
         numero=numero,
-        numero_proveedor=normalizar_mayusculas(datos.numero_proveedor),
+        numero_proveedor=comprobante_proveedor,
+        letra=datos.letra,
+        punto_emision=datos.punto_emision,
+        numero_factura=datos.numero_factura,
         proveedor_id=proveedor.id,
         almacen_id=almacen.id,
         ingreso_id=ingreso.id if ingreso else None,
@@ -3238,7 +3319,21 @@ async def crear_factura_compra(
         usuario_id=usuario.id,
     )
     sesion.add(factura)
-    await sesion.flush()
+    try:
+        await sesion.flush()
+    except IntegrityError as error:
+        await sesion.rollback()
+        origen = getattr(error, "orig", None)
+        diagnostico = getattr(origen, "diag", None)
+        restriccion = getattr(origen, "constraint_name", None) or getattr(
+            diagnostico, "constraint_name", None
+        )
+        if (
+            restriccion == "uq_factura_compra_comprobante_proveedor"
+            or "uq_factura_compra_comprobante_proveedor" in str(error)
+        ):
+            raise HTTPException(409, "La factura del proveedor ya fue registrada") from error
+        raise
     total = Decimal("0")
     for articulo_id, linea in lineas_entrada.items():
         articulo = await validar_articulo_proveedor(articulo_id, proveedor.id, sesion)

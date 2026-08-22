@@ -13,11 +13,21 @@ El perfil **CAJERO** no recibe estos permisos ni accede al modulo completo. Su p
 
 ## Flujo practico de una cuenta corriente
 
-Al ingresar en **Cuentas corrientes → Clientes / cobros**, el **Listado general** muestra todos los clientes con deuda o saldo a favor. Se puede buscar por nombre, codigo o documento y filtrar por **con movimientos**, **solamente con deuda**, **solamente saldo a favor** o **todos los clientes**. La cabecera informa el total por cobrar y el total de anticipos a favor.
+Al ingresar en **Cuentas corrientes → Clientes / cobros**, el **Listado general** muestra todos los clientes con deuda o saldo a favor. Se puede buscar por nombre, codigo o documento y filtrar por **con movimientos**, **solamente con deuda**, **solamente saldo a favor** o **todos los clientes**. La cabecera se recalcula sobre el resultado visible: indica cantidad de cuentas agrupadas, posicion neta, limite asignado, credito ocupado, remanente del limite general y anticipos a favor. Al escribir una busqueda, los totales dejan de representar toda la cartera y pasan a representar solamente las filas encontradas.
 
-Cada fila muestra estado de la cuenta, cantidad de documentos pendientes, deuda mas antigua, deuda total y saldo a favor. Para clientes, el listado es la unica busqueda necesaria: **Abrir cuenta** presenta una ficha modal sin abandonar ni alargar la pantalla principal. La ficha contiene resumen, documentos con saldo real, registro de cobro, historial y conciliacion. Las ventas ya canceladas no aparecen como pendientes; si no existe deuda, se informa expresamente que no hay documentos donde imputar. El listado puede exportarse a Excel; deuda y saldo a favor se generan como valores numericos con formato monetario.
+Cada fila muestra estado de la cuenta, cantidad de documentos pendientes, deuda mas antigua, limite asignado, importe ocupado, porcentaje utilizado, remanente del limite general y saldo a favor. Cuando existen cuentas vinculadas, la deuda y los saldos se presentan consolidados en la cuenta padre para no duplicar los totales. Al abrirla se accede a los documentos de todas sus hijas; al abrir una hija sólo se accede a sus propios documentos.
+
+Una cuenta padre que sólo cumple la función de agrupar se identifica como **AGRUPADORA**, no como **SIN CONFIGURAR**. En sus columnas de límite individual se indica **No aplica** y la columna **Deuda agrupada** muestra el total del grupo. Si la cuenta padre además compra por sí misma, puede configurarse opcionalmente con crédito propio sin modificar los límites de las hijas.
+
+**Ocupado** se mantiene individual en cada cliente, incluso si está vinculado con una cuenta padre. La barra permite reconocer cuánto consume la deuda propia de la hija sobre su límite propio. El disponible operativo de una nueva venta puede ser menor porque el POS también controla el límite del período y la deuda vencida de esa misma hija.
+
+Para clientes, el listado es la unica busqueda necesaria: **Abrir cuenta** presenta una ficha modal sin abandonar ni alargar la pantalla principal. La ficha contiene resumen, documentos con saldo real, registro de cobro, historial y conciliacion. Las ventas ya canceladas no aparecen como pendientes; si no existe deuda, se informa expresamente que no hay documentos donde imputar. El listado puede exportarse a Excel; todos los importes se generan como valores numericos con formato monetario.
 
 **Proveedores / pagos** utiliza el mismo diseño. Su listado general muestra total por pagar, facturas pendientes, deuda mas antigua y pagos confirmados todavia sin aplicar. **Abrir cuenta** presenta el modal del proveedor con facturas y pago, o historial y conciliacion. La busqueda individual inferior ya no se utiliza para ninguno de los dos tipos de cuenta.
+
+Las facturas de proveedor se identifican siempre por **letra + POI + numero** (por ejemplo `A 00003-00001254`). El UUID interno de base de datos no aparece como referencia en pendientes, conciliaciones, historicos, notas de credito, informes ni exportaciones.
+
+Del lado de clientes, cada venta se identifica por su **numero completo de ticket**: letra, punto de venta y numero correlativo (por ejemplo `T 0099-00000015`). En **Historial y conciliacion**, el numero funciona como enlace: al pulsarlo se abre un detalle dentro de Tesoreria con fecha, cliente, punto de venta, caja, articulos, cantidades, lista, precios, descuentos, IVA, total y saldo. El UUID tampoco se presenta como referencia operativa.
 
 1. Elegir **Clientes / cobros** o **Proveedores / pagos**.
 2. Buscar por nombre, codigo o documento y seleccionar el socio.
@@ -27,7 +37,7 @@ Cada fila muestra estado de la cuenta, cantidad de documentos pendientes, deuda 
 6. Si sobra dinero, queda disponible en el mismo documento para conciliar despues.
 7. En **Historial y conciliacion**, revisar lo ya aplicado o distribuir el saldo disponible entre otras facturas.
 
-No es una relacion uno a uno: un cobro o pago puede aplicarse a varias facturas y una factura puede cancelarse con varios cobros o pagos. La suma imputada nunca puede superar el saldo de la factura ni el disponible del documento de pago.
+No es una relacion uno a uno: un cobro o pago puede aplicarse a varias facturas y una factura puede cancelarse con varios cobros o pagos. Una aplicacion parcial puede completarse mas tarde incluso entre el mismo cobro o pago y la misma factura. Cada tramo queda como un renglon historico independiente con importe, fecha y usuario. La suma imputada nunca puede superar el saldo de la factura ni el disponible del documento de pago.
 
 ## Clientes y proveedores
 
@@ -60,11 +70,22 @@ Para una venta que no utiliza cuenta corriente, el cobro debe quedar conciliado 
 
 En **Caja y arqueo** se selecciona una apertura activa. El control muestra ventas, cobros, pagos, ingresos y egresos de esa apertura, discriminados por medio.
 
+### Retirar dinero sin dejar egresos sueltos
+
+**Retirar dinero** obliga a clasificar la salida antes de confirmarla:
+
+- **Gasto directo:** registra un egreso de caja final, con concepto, medio, referencia y proveedor opcional. Se utiliza cuando no existe una factura que deba cancelarse posteriormente.
+- **Pago a proveedor:** exige seleccionar al proveedor y crea un pago real asociado a la apertura. Si todavía no se elige ninguna factura, el importe queda como **pago sin aplicar** en la cuenta corriente del proveedor y puede conciliarse posteriormente desde **Cuentas corrientes → Proveedores / pagos**.
+
+Un pago a proveedor no crea simultaneamente un movimiento manual: el propio pago descuenta la caja. Esto evita duplicar la salida en el control, el cierre y el flujo de dinero. Todo retiro conserva fecha y hora, usuario, caja, punto de venta, periodo operativo, medio, concepto y referencia.
+
 Cada apertura pertenece a una **fecha operativa** elegida al abrir la caja. Esa fecha representa el dia comercial y puede ser anterior al instante real de apertura, pero no futura. No es unica: se pueden abrir y cerrar varias cajas o varios turnos dentro del mismo dia operativo. La hora real de cada apertura y cierre se conserva por separado para auditoria. El selector de Caja y arqueo muestra primero el periodo para evitar operar la apertura equivocada.
 
 ### Movimientos manuales
 
 Se registra un `INGRESO` o `EGRESO`, importe, medio y concepto. Se usa para operaciones reales de caja que no nacen de una venta, cobro o pago. No debe utilizarse para corregir silenciosamente una diferencia de arqueo.
+
+Para gastos y pagos a proveedores se debe preferir **Retirar dinero**, porque agrega la clasificacion y trazabilidad necesarias. El movimiento manual queda reservado para ajustes operativos excepcionales debidamente explicados.
 
 ### Arqueo
 

@@ -2,7 +2,7 @@
 
 import { apiFetch } from "@/api";
 
-import { KeyboardEvent, RefObject, useEffect, useRef, useState } from "react";
+import { KeyboardEvent, RefObject, useEffect, useId, useRef, useState } from "react";
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api/v1";
 export type ArticuloBuscado = {
@@ -40,7 +40,10 @@ export default function BuscadorArticulo({
   const [resultados, setResultados] = useState<ArticuloBuscado[]>([]);
   const [abierto, setAbierto] = useState(false);
   const [indice, setIndice] = useState(-1);
+  const idLista = useId();
   const contenedor = useRef<HTMLDivElement>(null);
+  const listaResultados = useRef<HTMLDivElement>(null);
+  const opcionesResultados = useRef<(HTMLButtonElement | null)[]>([]);
   const omitirBusquedaSeleccion = useRef(false);
   const versionBusqueda = useRef(0);
 
@@ -79,6 +82,21 @@ export default function BuscadorArticulo({
     document.addEventListener("mousedown", cerrar);
     return () => document.removeEventListener("mousedown", cerrar);
   }, []);
+
+  useEffect(() => {
+    if (!abierto || indice < 0) return;
+    const lista = listaResultados.current;
+    const opcion = opcionesResultados.current[indice];
+    if (!lista || !opcion) return;
+    const limiteSuperior = lista.scrollTop;
+    const limiteInferior = limiteSuperior + lista.clientHeight;
+    const superiorOpcion = opcion.offsetTop;
+    const inferiorOpcion = superiorOpcion + opcion.offsetHeight;
+    if (superiorOpcion < limiteSuperior) lista.scrollTop = superiorOpcion;
+    else if (inferiorOpcion > limiteInferior) {
+      lista.scrollTop = inferiorOpcion - lista.clientHeight;
+    }
+  }, [abierto, indice]);
 
   function elegir(articulo: ArticuloBuscado) {
     const coincidenciaMultiplicador = texto.trim().match(/^(\d+(?:[.,]\d+)?)\s*\*\s*(.+)$/);
@@ -146,6 +164,10 @@ export default function BuscadorArticulo({
         placeholder="Codigo, descripcion, barra o codigo de proveedor"
         required={requerido}
         autoComplete="off"
+        role="combobox"
+        aria-expanded={abierto}
+        aria-controls={idLista}
+        aria-activedescendant={indice >= 0 ? `${idLista}-opcion-${indice}` : undefined}
         disabled={deshabilitado}
         onFocus={() => resultados.length > 0 && setAbierto(true)}
         onKeyDown={manejarTeclado}
@@ -162,9 +184,9 @@ export default function BuscadorArticulo({
         }}
       />
       {abierto && (
-        <div role="listbox" aria-label="Resultados de artículos" className="absolute z-40 mt-1 max-h-72 w-full overflow-y-auto rounded-xl border bg-white p-1 shadow-xl">
+        <div ref={listaResultados} id={idLista} role="listbox" aria-label="Resultados de artículos" className="absolute z-40 mt-1 max-h-72 w-full overflow-y-auto rounded-xl border bg-white p-1 shadow-xl">
           {resultados.length ? resultados.map((x, posicion) => (
-            <button type="button" role="option" aria-selected={indice === posicion} key={x.id} onClick={() => elegir(x)} className={`block w-full rounded-lg px-3 py-2 text-left text-sm ${indice === posicion ? "bg-[var(--marca-clara)]" : "hover:bg-[var(--fondo)]"}`}>
+            <button ref={(elemento)=>{opcionesResultados.current[posicion]=elemento}} id={`${idLista}-opcion-${posicion}`} type="button" role="option" aria-selected={indice === posicion} key={x.id} onMouseMove={()=>setIndice(posicion)} onClick={() => elegir(x)} className={`block w-full rounded-lg px-3 py-2 text-left text-sm ${indice === posicion ? "bg-[var(--marca-clara)]" : "hover:bg-[var(--fondo)]"}`}>
               <b className="font-mono">{x.codigo}</b> · {x.descripcion}
             </button>
           )) : <p className="p-3 text-sm text-[var(--texto-suave)]">Sin coincidencias</p>}

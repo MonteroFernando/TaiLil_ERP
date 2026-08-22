@@ -125,7 +125,7 @@ async def nota_vista(nota: NotaCredito, sesion: AsyncSession) -> NotaCreditoVist
         origen_id = nota.venta_id
     else:
         origen = await sesion.get(FacturaCompra, nota.factura_compra_id)
-        origen_texto = origen.numero_proveedor if origen else "FACTURA INEXISTENTE"
+        origen_texto = origen.comprobante_proveedor if origen else "FACTURA INEXISTENTE"
         origen_id = nota.factura_compra_id
     devolucion = await sesion.get(CobroDocumento, nota.devolucion_cobro_id)
     movimiento_caja = await sesion.get(MovimientoCaja, nota.movimiento_caja_id)
@@ -293,7 +293,7 @@ async def listar_origenes(
                     "id": str(documento.id),
                     "socio_id": str(documento.proveedor_id),
                     "socio_nombre": socio.razon_social,
-                    "numero": documento.numero_proveedor,
+                    "numero": documento.comprobante_proveedor,
                     "fecha": documento.fecha_realizacion,
                     "total": documento.total_bruto,
                     "saldo_pendiente": documento.saldo_pendiente,

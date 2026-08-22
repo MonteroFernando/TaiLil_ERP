@@ -34,6 +34,10 @@ type Documento = {
   estado: string;
   fecha_realizacion: string;
   total_bruto: string | null;
+  letra: string | null;
+  punto_emision: string | null;
+  numero_factura: string | null;
+  comprobante_proveedor: string | null;
   lineas: {
     articulo_id: string;
     articulo_codigo: string;
@@ -55,7 +59,9 @@ export default function Compras() {
     [articulo, setArticulo] = useState<ArticuloBuscado | null>(null),
     [cantidad, setCantidad] = useState("1"),
     [ingreso, setIngreso] = useState(""),
-    [numeroProveedor, setNumeroProveedor] = useState(""),
+    [letraFactura, setLetraFactura] = useState("A"),
+    [puntoEmision, setPuntoEmision] = useState(""),
+    [numeroFactura, setNumeroFactura] = useState(""),
     [politica, setPolitica] = useState("REEMPLAZAR"),
     [mensaje, setMensaje] = useState(""),
     [nuevo, setNuevo] = useState(false),
@@ -133,7 +139,9 @@ export default function Compras() {
       ? {
           proveedor_id: proveedor,
           almacen_id: almacen,
-          numero_proveedor: numeroProveedor,
+          letra: letraFactura,
+          punto_emision: puntoEmision,
+          numero_factura: numeroFactura,
           ingreso_id: ingreso || null,
           politica_costo: politica,
           lineas: lineas.map((x) => ({
@@ -174,11 +182,13 @@ export default function Compras() {
             `${x.articulo_codigo}: ${x.advertencia}`,
         );
       setMensaje(
-        `${esFactura ? "Factura" : "Ingreso"} #${d.numero} confirmado${avisos.length ? `. AVISO: ${avisos.join(" · ")}` : ""}`,
+        `${esFactura ? `Factura ${d.comprobante_proveedor}` : `Ingreso #${d.numero}`} confirmado${avisos.length ? `. AVISO: ${avisos.join(" · ")}` : ""}`,
       );
       setLineas([]);
       setIngreso("");
-      setNumeroProveedor("");
+      setLetraFactura("A");
+      setPuntoEmision("");
+      setNumeroFactura("");
       setNuevo(false);
       await cargar();
     } catch {
@@ -302,15 +312,53 @@ export default function Compras() {
                   ))}
                 </select>
               </label>
-              <label>
-                Numero de factura del proveedor
-                <input
-                  required
-                  value={numeroProveedor}
-                  onChange={(e) => setNumeroProveedor(e.target.value)}
-                  className="mt-1 w-full rounded-xl border p-3"
-                />
-              </label>
+              <fieldset className="md:col-span-2">
+                <legend className="font-medium">Comprobante del proveedor</legend>
+                <p className="mb-2 text-xs text-[var(--texto-suave)]">
+                  Ingrese la letra, el POI (punto de emisión) y el número impresos en la factura.
+                </p>
+                <div className="grid gap-3 sm:grid-cols-[100px_160px_1fr]">
+                  <label>
+                    Letra
+                    <select
+                      required
+                      value={letraFactura}
+                      onChange={(e) => setLetraFactura(e.target.value)}
+                      className="mt-1 w-full rounded-xl border p-3"
+                    >
+                      {["A", "B", "C", "M", "X"].map((letra) => (
+                        <option key={letra}>{letra}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    POI / Emisión
+                    <input
+                      required
+                      inputMode="numeric"
+                      pattern="[0-9]{1,5}"
+                      maxLength={5}
+                      placeholder="00001"
+                      value={puntoEmision}
+                      onChange={(e) => setPuntoEmision(e.target.value.replace(/\D/g, ""))}
+                      className="mt-1 w-full rounded-xl border p-3"
+                    />
+                  </label>
+                  <label>
+                    Número de factura
+                    <input
+                      required
+                      inputMode="numeric"
+                      pattern="[0-9]{1,20}"
+                      maxLength={20}
+                      placeholder="00000001"
+                      value={numeroFactura}
+                      onChange={(e) => setNumeroFactura(e.target.value.replace(/\D/g, ""))}
+                      className="mt-1 w-full rounded-xl border p-3"
+                    />
+                  </label>
+                </div>
+              </fieldset>
               <label>
                 Politica general de costo
                 <select
@@ -496,7 +544,7 @@ export default function Compras() {
                 .map((x) => (
                   <tr key={`${x.tipo}-${x.id}`} className="border-t">
                     <td className="py-3">{x.tipo}</td>
-                    <td>#{x.numero}</td>
+                    <td>{x.tipo === "FACTURA" ? x.comprobante_proveedor : `#${x.numero}`}</td>
                     <td>{x.proveedor_nombre}</td>
                     <td>{x.almacen_codigo}</td>
                     <td>

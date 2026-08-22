@@ -30,3 +30,7 @@ Durante la confirmacion, el servidor calcula el saldo pendiente a dos decimales.
 La venta, sus cobros nuevos, la aplicacion de anticipos, el saldo pendiente y los movimientos de stock se confirman en la misma transaccion. Esto evita consumir dos veces un anticipo o dejar una venta confirmada sin sus impactos.
 
 Las conciliaciones posteriores y anulaciones se describen en [Tesoreria](tesoreria.md).
+
+`GET /api/v1/tesoreria/cuentas-corrientes/clientes/resumen` agrega una lectura gerencial por cliente con `limite_asignado`, `credito_ocupado` y remanente del limite general. Estos valores son `Decimal` y se exportan como numeros. La interfaz consolida solamente las filas visibles despues de aplicar busqueda y filtro. La disponibilidad operativa para vender sigue calculandose con esta API de cuenta corriente, porque ademas incorpora periodo y vencimiento.
+
+La jerarquía de cuentas afecta únicamente la vista financiera de Tesorería: la raíz recibe la deuda consolidada y las hijas exponen su deuda individual para controlar el crédito. `calcular_estado_cuenta_corriente_ventas` no recorre `cuenta_padre_cliente_id`; filtra `ventas_documentos.cliente_id` por el cliente consultado para que cada hijo mantenga sus límites propios.

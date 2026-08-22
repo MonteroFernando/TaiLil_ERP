@@ -81,9 +81,11 @@ La venta debe quedar cubierta mediante medios de pago explícitos. La cuenta cor
 
 ### Cuenta corriente y conciliación
 
-Tesorería comienza con un listado general de clientes o proveedores. **Abrir cuenta** muestra en un modal posición, documentos, cobros o pagos, saldos disponibles, historial y conciliaciones.
+Tesorería comienza con un listado general de clientes o proveedores. Sus totales se recalculan sobre el resultado buscado o filtrado. Para clientes muestra limite asignado, credito ocupado, porcentaje de uso, remanente general y saldo a favor. **Abrir cuenta** muestra en un modal posición, documentos, cobros o pagos, saldos disponibles, historial y conciliaciones.
 
-La relación es muchos a muchos: un pago puede aplicarse a varias facturas y una factura puede recibir varios pagos. Solo se puede imputar saldo real pendiente; los anticipos quedan como saldo a favor hasta su aplicación.
+Desde **Caja y arqueo** se registra un retiro como gasto directo o pago a proveedor. El pago puede quedar sin aplicar y conciliarse posteriormente; el gasto queda categorizado con concepto y referencia. Informes muestra usuario, caja y un mapa hasta los comprobantes relacionados.
+
+La relación es muchos a muchos: un pago puede aplicarse a varias facturas y una factura puede recibir varios pagos. Las aplicaciones parciales de la misma pareja pueden completarse posteriormente y cada tramo conserva su auditoria. Solo se puede imputar saldo real pendiente; los anticipos quedan como saldo a favor hasta su aplicación.
 
 ### Caja y período operativo
 
@@ -94,10 +96,10 @@ La fecha operativa se elige al abrir la caja y puede contener varias aperturas y
 La revisión Alembic vigente es:
 
 ```text
-20260822_0045 (head)
+20260822_0048 (head)
 ```
 
-Las actualizaciones se realizan exclusivamente mediante migraciones incrementales. La revisión `0045` agregó la fecha operativa y completó los registros anteriores usando la fecha argentina de apertura; no eliminó ventas, cajas ni cierres.
+Las actualizaciones se realizan exclusivamente mediante migraciones incrementales. La revisión `0048` incorpora letra, POI y numero de factura de proveedor, separa los datos reconocibles y conserva literalmente las referencias historicas que no pueden interpretarse; no elimina ventas, compras, cajas ni cierres.
 
 Los históricos financieros y de inventario usan claves foráneas restrictivas. Las operaciones confirmadas no se corrigen borrando filas: se utilizan notas de crédito, anulaciones trazables, ajustes o movimientos compensatorios según corresponda.
 

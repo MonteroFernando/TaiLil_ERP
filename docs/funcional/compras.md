@@ -8,15 +8,17 @@ La pantalla respeta el patron general de documentos: el listado permanece como v
 
 Una **factura de compra** puede vincular un ingreso pendiente. En ese caso toma exactamente sus productos y cantidades, registra los costos y no vuelve a mover stock. Tambien puede cargarse directamente: confirma simultaneamente el ingreso fisico y la actualizacion de costos.
 
+Antes de confirmarla se deben copiar los tres datos impresos en el comprobante del proveedor: **Letra**, **POI / punto de emision** y **numero de factura**. Por ejemplo, letra `A`, POI `00003` y numero `00001254` se muestran en todo el ERP como `A 00003-00001254`. El numero interno del sistema no reemplaza este comprobante y no se presenta como referencia operativa. El ERP avisa si esa combinacion ya fue cargada para el mismo proveedor.
+
 El proveedor filtra los articulos disponibles mediante las vinculaciones activas del maestro. Todos los costos son brutos y cada factura define una politica general, reemplazable por linea:
 
-En cada renglon el articulo se selecciona con busqueda dinamica por palabras en cualquier orden. Se consideran codigo interno, descripcion, codigo de proveedor y todos los codigos de barra; se puede recorrer con flechas, confirmar con `Enter` y cerrar con `Escape`.
+En cada renglon el articulo se selecciona con busqueda dinamica por palabras en cualquier orden. Se consideran codigo interno, descripcion, codigo de proveedor y todos los codigos de barra; se puede recorrer con flechas, confirmar con `Enter` y cerrar con `Escape`. Cuando hay mas resultados que el alto visible, el desplegable desplaza su contenido para mantener siempre a la vista la opcion resaltada.
 
 - **Cambiar costo:** adopta el costo bruto nuevo.
 - **Promedio ponderado:** pondera stock y costo anteriores contra cantidad y costo nuevos.
 - **No modificar:** conserva el costo vigente aunque registra el costo historico facturado.
 
-Si el stock anterior es cero o negativo, el promedio no resulta representativo. El sistema toma directamente el costo bruto nuevo y muestra la advertencia en la linea y al confirmar. Cada documento conserva fecha y hora, usuario, proveedor, almacen, cantidades y referencias al movimiento de stock.
+Si el stock anterior es cero o negativo, el promedio no resulta representativo. El sistema toma directamente el costo bruto nuevo y muestra la advertencia en la linea y al confirmar. Cada documento conserva fecha y hora, usuario, proveedor, letra, POI, numero de factura, almacen, cantidades y referencias al movimiento de stock.
 
 La futura recepcion mediante RF podra generar el mismo ingreso de mercaderia sin cambiar estas reglas.
 

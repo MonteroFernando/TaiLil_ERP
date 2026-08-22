@@ -457,15 +457,6 @@ class CobroMedioPago(Base):
 
 class ImputacionCobroVenta(Base):
     __tablename__ = "imputaciones_cobros_ventas"
-    __table_args__ = (
-        Index(
-            "uq_imputacion_cobro_venta_activa",
-            "cobro_id",
-            "venta_id",
-            unique=True,
-            postgresql_where=text("estado = 'ACTIVA'"),
-        ),
-    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     cobro_id: Mapped[UUID] = mapped_column(
@@ -671,10 +662,22 @@ class IngresoMercaderiaDetalle(Base):
 
 class FacturaCompra(Base):
     __tablename__ = "facturas_compra"
+    __table_args__ = (
+        UniqueConstraint(
+            "proveedor_id",
+            "letra",
+            "punto_emision",
+            "numero_factura",
+            name="uq_factura_compra_comprobante_proveedor",
+        ),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     numero: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)
     numero_proveedor: Mapped[str] = mapped_column(String(80), index=True)
+    letra: Mapped[str] = mapped_column(String(1), index=True)
+    punto_emision: Mapped[str] = mapped_column(String(5), index=True)
+    numero_factura: Mapped[str] = mapped_column(String(20), index=True)
     proveedor_id: Mapped[UUID] = mapped_column(
         ForeignKey("socios.id", ondelete="RESTRICT"), index=True
     )
@@ -695,6 +698,13 @@ class FacturaCompra(Base):
     fecha_realizacion: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), index=True
     )
+
+    @property
+    def comprobante_proveedor(self) -> str:
+        """Identificacion comercial rastreable; nunca expone el UUID interno."""
+        if self.letra == "X" and self.punto_emision == "00000":
+            return self.numero_proveedor
+        return f"{self.letra} {self.punto_emision.zfill(5)}-{self.numero_factura.zfill(8)}"
 
 
 class FacturaCompraDetalle(Base):

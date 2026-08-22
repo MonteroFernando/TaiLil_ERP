@@ -4,7 +4,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import Sequence, func, or_, select
+from sqlalchemy import Sequence, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infrastructure.database.sesion import obtener_sesion
@@ -30,6 +30,7 @@ from app.modules.tesoreria.api.schemas import (
     DocumentoTesoreriaCrear,
     DocumentoTesoreriaVista,
     MovimientoCajaCrear,
+    RetiroCajaCrear,
 )
 from app.modules.tesoreria.infrastructure.models import (
     ArqueoCaja,
@@ -56,6 +57,49 @@ def dinero(valor: Decimal | int | None) -> Decimal:
     return Decimal(valor or 0).quantize(Decimal("0.01"))
 
 
+def resolver_raices_cuentas(socios: list[Socio], rol: str) -> dict[UUID, UUID]:
+    por_id = {socio.id: socio for socio in socios}
+    campo_padre = f"cuenta_padre_{rol}_id"
+    raices: dict[UUID, UUID] = {}
+    for socio in socios:
+        actual = socio
+        visitados = {socio.id}
+        while True:
+            padre_id = getattr(actual, campo_padre)
+            if padre_id is None or padre_id not in por_id or padre_id in visitados:
+                raices[socio.id] = actual.id
+                break
+            visitados.add(padre_id)
+            actual = por_id[padre_id]
+    return raices
+
+
+async def mapa_cuentas_por_rol(
+    rol: str, sesion: AsyncSession
+) -> tuple[dict[UUID, Socio], dict[UUID, UUID]]:
+    campo_rol = Socio.es_cliente if rol == "cliente" else Socio.es_proveedor
+    socios = list(await sesion.scalars(select(Socio).where(campo_rol.is_(True))))
+    por_id = {socio.id: socio for socio in socios}
+    raices = resolver_raices_cuentas(socios, rol)
+    return por_id, raices
+
+
+async def ids_cuenta_visible(socio_id: UUID, rol: str, sesion: AsyncSession) -> set[UUID]:
+    socios, raices = await mapa_cuentas_por_rol(rol, sesion)
+    socio = socios.get(socio_id)
+    if socio is None:
+        return {socio_id}
+    if raices.get(socio_id, socio_id) != socio_id:
+        return {socio_id}
+    return {item_id for item_id, raiz_id in raices.items() if raiz_id == socio_id}
+
+
+async def ids_grupo_completo(socio_id: UUID, rol: str, sesion: AsyncSession) -> set[UUID]:
+    _, raices = await mapa_cuentas_por_rol(rol, sesion)
+    raiz_id = raices.get(socio_id, socio_id)
+    return {item_id for item_id, item_raiz in raices.items() if item_raiz == raiz_id}
+
+
 async def validar_apertura(apertura_id: UUID | None, sesion: AsyncSession) -> AperturaCaja | None:
     if apertura_id is None:
         return None
@@ -79,6 +123,20 @@ async def cobro_vista(cobro: CobroDocumento, sesion: AsyncSession) -> DocumentoT
             .order_by(ImputacionCobroVenta.fecha_imputacion)
         )
     )
+    ventas = {
+        venta.id: (
+            f"{venta.letra} {punto.codigo}-{venta.numero:08d}"
+            if punto is not None and venta.numero is not None
+            else f"{venta.tipo_documento} #{venta.numero or 0}"
+        )
+        for venta, punto in (
+            await sesion.execute(
+                select(VentaDocumento, PuntoVenta)
+                .outerjoin(PuntoVenta, PuntoVenta.id == VentaDocumento.punto_venta_id)
+                .where(VentaDocumento.id.in_([x.venta_id for x in imputaciones]))
+            )
+        ).all()
+    } if imputaciones else {}
     activo = sum((x.importe for x in imputaciones if x.estado == "ACTIVA"), CERO)
     return DocumentoTesoreriaVista(
         id=cobro.id,
@@ -96,6 +154,7 @@ async def cobro_vista(cobro: CobroDocumento, sesion: AsyncSession) -> DocumentoT
             {
                 "id": str(x.id),
                 "documento_id": str(x.venta_id),
+                "documento": ventas.get(x.venta_id, "VENTA INEXISTENTE"),
                 "importe": x.importe,
                 "estado": x.estado,
                 "fecha": x.fecha_imputacion,
@@ -118,6 +177,14 @@ async def pago_vista(pago: PagoDocumento, sesion: AsyncSession) -> DocumentoTeso
             .order_by(ImputacionPagoFactura.fecha_imputacion)
         )
     )
+    facturas = {
+        factura.id: factura
+        for factura in await sesion.scalars(
+            select(FacturaCompra).where(
+                FacturaCompra.id.in_([x.factura_id for x in imputaciones])
+            )
+        )
+    } if imputaciones else {}
     activo = sum((x.importe for x in imputaciones if x.estado == "ACTIVA"), CERO)
     return DocumentoTesoreriaVista(
         id=pago.id,
@@ -135,6 +202,11 @@ async def pago_vista(pago: PagoDocumento, sesion: AsyncSession) -> DocumentoTeso
             {
                 "id": str(x.id),
                 "documento_id": str(x.factura_id),
+                "documento": (
+                    facturas[x.factura_id].comprobante_proveedor
+                    if x.factura_id in facturas
+                    else "FACTURA INEXISTENTE"
+                ),
                 "importe": x.importe,
                 "estado": x.estado,
                 "fecha": x.fecha_imputacion,
@@ -148,6 +220,7 @@ async def pago_vista(pago: PagoDocumento, sesion: AsyncSession) -> DocumentoTeso
 async def imputar_cobro(
     cobro: CobroDocumento, items, usuario: Usuario, sesion: AsyncSession
 ) -> None:
+    clientes_grupo = await ids_grupo_completo(cobro.cliente_id, "cliente", sesion)
     ya_imputado = dinero(
         await sesion.scalar(
             select(func.coalesce(func.sum(ImputacionCobroVenta.importe), 0)).where(
@@ -161,21 +234,16 @@ async def imputar_cobro(
         venta = await sesion.scalar(
             select(VentaDocumento).where(VentaDocumento.id == item.documento_id).with_for_update()
         )
-        if venta is None or venta.cliente_id != cobro.cliente_id or venta.estado != "CONFIRMADO":
+        if (
+            venta is None
+            or venta.cliente_id not in clientes_grupo
+            or venta.estado != "CONFIRMADO"
+        ):
             raise HTTPException(
                 409, "La factura de venta no corresponde al cliente o no esta vigente"
             )
         if item.importe > venta.saldo_pendiente:
             raise HTTPException(409, f"La imputacion supera el saldo de la venta {venta.numero}")
-        existente = await sesion.scalar(
-            select(ImputacionCobroVenta).where(
-                ImputacionCobroVenta.cobro_id == cobro.id,
-                ImputacionCobroVenta.venta_id == venta.id,
-                ImputacionCobroVenta.estado == "ACTIVA",
-            )
-        )
-        if existente is not None:
-            raise HTTPException(409, "Ese cobro ya posee una imputacion historica para la factura")
         sesion.add(
             ImputacionCobroVenta(
                 cobro_id=cobro.id,
@@ -189,6 +257,7 @@ async def imputar_cobro(
 
 
 async def imputar_pago(pago: PagoDocumento, items, usuario: Usuario, sesion: AsyncSession) -> None:
+    proveedores_grupo = await ids_grupo_completo(pago.proveedor_id, "proveedor", sesion)
     ya_imputado = dinero(
         await sesion.scalar(
             select(func.coalesce(func.sum(ImputacionPagoFactura.importe), 0)).where(
@@ -204,7 +273,7 @@ async def imputar_pago(pago: PagoDocumento, items, usuario: Usuario, sesion: Asy
         )
         if (
             factura is None
-            or factura.proveedor_id != pago.proveedor_id
+            or factura.proveedor_id not in proveedores_grupo
             or factura.estado != "CONFIRMADO"
         ):
             raise HTTPException(
@@ -212,17 +281,9 @@ async def imputar_pago(pago: PagoDocumento, items, usuario: Usuario, sesion: Asy
             )
         if item.importe > factura.saldo_pendiente:
             raise HTTPException(
-                409, f"La imputacion supera el saldo de la factura {factura.numero_proveedor}"
+                409,
+                f"La imputacion supera el saldo de la factura {factura.comprobante_proveedor}",
             )
-        existente = await sesion.scalar(
-            select(ImputacionPagoFactura).where(
-                ImputacionPagoFactura.pago_id == pago.id,
-                ImputacionPagoFactura.factura_id == factura.id,
-                ImputacionPagoFactura.estado == "ACTIVA",
-            )
-        )
-        if existente is not None:
-            raise HTTPException(409, "Ese pago ya posee una imputacion historica para la factura")
         sesion.add(
             ImputacionPagoFactura(
                 pago_id=pago.id,
@@ -279,8 +340,9 @@ async def ventas(
     sesion: AsyncSession = Depends(obtener_sesion),
 ) -> list[dict]:
     consulta = (
-        select(VentaDocumento, Socio)
+        select(VentaDocumento, Socio, PuntoVenta)
         .join(Socio, Socio.id == VentaDocumento.cliente_id)
+        .outerjoin(PuntoVenta, PuntoVenta.id == VentaDocumento.punto_venta_id)
         .order_by(VentaDocumento.fecha_realizacion.desc())
         .limit(limite)
     )
@@ -292,6 +354,11 @@ async def ventas(
             "id": x.id,
             "numero": x.numero,
             "letra": x.letra,
+            "numero_completo": (
+                f"{x.letra} {p.codigo}-{x.numero:08d}"
+                if p is not None and x.numero is not None
+                else f"{x.letra} #{x.numero or 0}"
+            ),
             "tipo_documento": x.tipo_documento,
             "socio_id": s.id,
             "socio_nombre": s.razon_social,
@@ -300,7 +367,7 @@ async def ventas(
             "estado": x.estado,
             "fecha": x.fecha_realizacion,
         }
-        for x, s in filas
+        for x, s, p in filas
     ]
 
 
@@ -372,34 +439,84 @@ async def resumen_cuentas_corrientes_clientes(
         .where(Socio.es_cliente.is_(True), Socio.activo.is_(True))
         .order_by(Socio.razon_social, Socio.codigo)
     )
-    if solo_con_movimientos:
-        consulta = consulta.where(or_(deuda_actual > 0, saldo_favor > 0))
-    if buscar:
-        for termino in buscar.split():
-            patron = f"%{termino}%"
-            consulta = consulta.where(
-                or_(
-                    Socio.codigo.ilike(patron),
-                    Socio.razon_social.ilike(patron),
-                    Socio.numero_documento.ilike(patron),
-                )
-            )
     filas = (await sesion.execute(consulta)).all()
-    return [
-        CuentaCorrienteClienteResumen(
-            socio_id=socio.id,
-            codigo=socio.codigo,
-            razon_social=socio.razon_social,
-            numero_documento=socio.numero_documento,
-            cuenta_configurada=cuenta is not None,
-            cuenta_activa=bool(cuenta and cuenta.activa),
-            deuda_actual=dinero(deuda),
-            saldo_favor=max(CERO, dinero(favor)),
-            documentos_pendientes=int(cantidad or 0),
-            deuda_mas_antigua=antigua,
+    socios, raices = await mapa_cuentas_por_rol("cliente", sesion)
+    activos = {socio.id for socio, *_ in filas}
+    grupos: dict[UUID, dict] = {}
+    for socio, _, deuda, favor, cantidad, antigua in filas:
+        raiz_id = raices.get(socio.id, socio.id)
+        if raiz_id not in activos:
+            raiz_id = socio.id
+        grupo = grupos.setdefault(
+            raiz_id,
+            {"deuda": CERO, "favor": CERO, "documentos": 0, "antigua": None, "miembros": 0},
         )
-        for socio, cuenta, deuda, favor, cantidad, antigua in filas
-    ]
+        grupo["deuda"] += max(CERO, dinero(deuda))
+        grupo["favor"] += max(CERO, dinero(favor))
+        grupo["documentos"] += int(cantidad or 0)
+        grupo["miembros"] += 1
+        if antigua is not None and (grupo["antigua"] is None or antigua < grupo["antigua"]):
+            grupo["antigua"] = antigua
+
+    resultado = []
+    for socio, cuenta, deuda, favor, cantidad, _ in filas:
+        raiz_id = raices.get(socio.id, socio.id)
+        if raiz_id not in activos:
+            raiz_id = socio.id
+        grupo = grupos[raiz_id]
+        es_raiz = raiz_id == socio.id
+        deuda_individual = max(CERO, dinero(deuda))
+        favor_individual = max(CERO, dinero(favor))
+        resultado.append(
+            CuentaCorrienteClienteResumen(
+                socio_id=socio.id,
+                codigo=socio.codigo,
+                razon_social=socio.razon_social,
+                numero_documento=socio.numero_documento,
+                cuenta_configurada=cuenta is not None,
+                cuenta_activa=bool(cuenta and cuenta.activa),
+                cuenta_padre_id=None if es_raiz else raiz_id,
+                cuenta_padre_nombre=None if es_raiz else socios[raiz_id].razon_social,
+                es_cuenta_agrupadora=es_raiz and grupo["miembros"] > 1,
+                miembros_agrupados=grupo["miembros"] if es_raiz else 1,
+                limite_asignado=dinero(cuenta.limite_deuda if cuenta else 0),
+                credito_ocupado=deuda_individual,
+                credito_disponible=(
+                    max(CERO, dinero(cuenta.limite_deuda) - deuda_individual)
+                    if cuenta and cuenta.activa
+                    else CERO
+                ),
+                deuda_individual=deuda_individual,
+                saldo_favor_individual=favor_individual,
+                documentos_individuales=int(cantidad or 0),
+                deuda_actual=dinero(grupo["deuda"]) if es_raiz else CERO,
+                saldo_favor=dinero(grupo["favor"]) if es_raiz else CERO,
+                documentos_pendientes=grupo["documentos"] if es_raiz else 0,
+                deuda_mas_antigua=grupo["antigua"] if es_raiz else None,
+            )
+        )
+    if solo_con_movimientos:
+        resultado = [
+            item
+            for item in resultado
+            if item.deuda_actual > 0
+            or item.saldo_favor > 0
+            or item.deuda_individual > 0
+            or item.saldo_favor_individual > 0
+        ]
+    if buscar:
+        terminos = buscar.casefold().split()
+        resultado = [
+            item
+            for item in resultado
+            if all(
+                termino
+                in f"{item.codigo} {item.razon_social} {item.numero_documento} "
+                f"{item.cuenta_padre_nombre or ''}".casefold()
+                for termino in terminos
+            )
+        ]
+    return resultado
 
 
 @router.get(
@@ -465,32 +582,75 @@ async def resumen_cuentas_corrientes_proveedores(
         .where(Socio.es_proveedor.is_(True), Socio.activo.is_(True))
         .order_by(Socio.razon_social, Socio.codigo)
     )
-    if solo_con_movimientos:
-        consulta = consulta.where(or_(deuda_actual > 0, saldo_favor > 0))
-    if buscar:
-        for termino in buscar.split():
-            patron = f"%{termino}%"
-            consulta = consulta.where(
-                or_(
-                    Socio.codigo.ilike(patron),
-                    Socio.razon_social.ilike(patron),
-                    Socio.numero_documento.ilike(patron),
-                )
-            )
     filas = (await sesion.execute(consulta)).all()
-    return [
-        CuentaCorrienteProveedorResumen(
-            socio_id=socio.id,
-            codigo=socio.codigo,
-            razon_social=socio.razon_social,
-            numero_documento=socio.numero_documento,
-            deuda_actual=dinero(deuda),
-            saldo_favor=max(CERO, dinero(favor)),
-            documentos_pendientes=int(cantidad or 0),
-            deuda_mas_antigua=antigua,
+    socios, raices = await mapa_cuentas_por_rol("proveedor", sesion)
+    activos = {socio.id for socio, *_ in filas}
+    grupos: dict[UUID, dict] = {}
+    for socio, deuda, favor, cantidad, antigua in filas:
+        raiz_id = raices.get(socio.id, socio.id)
+        if raiz_id not in activos:
+            raiz_id = socio.id
+        grupo = grupos.setdefault(
+            raiz_id,
+            {"deuda": CERO, "favor": CERO, "documentos": 0, "antigua": None, "miembros": 0},
         )
-        for socio, deuda, favor, cantidad, antigua in filas
-    ]
+        grupo["deuda"] += max(CERO, dinero(deuda))
+        grupo["favor"] += max(CERO, dinero(favor))
+        grupo["documentos"] += int(cantidad or 0)
+        grupo["miembros"] += 1
+        if antigua is not None and (grupo["antigua"] is None or antigua < grupo["antigua"]):
+            grupo["antigua"] = antigua
+
+    resultado = []
+    for socio, deuda, favor, cantidad, _ in filas:
+        raiz_id = raices.get(socio.id, socio.id)
+        if raiz_id not in activos:
+            raiz_id = socio.id
+        grupo = grupos[raiz_id]
+        es_raiz = raiz_id == socio.id
+        deuda_individual = max(CERO, dinero(deuda))
+        favor_individual = max(CERO, dinero(favor))
+        resultado.append(
+            CuentaCorrienteProveedorResumen(
+                socio_id=socio.id,
+                codigo=socio.codigo,
+                razon_social=socio.razon_social,
+                numero_documento=socio.numero_documento,
+                cuenta_padre_id=None if es_raiz else raiz_id,
+                cuenta_padre_nombre=None if es_raiz else socios[raiz_id].razon_social,
+                es_cuenta_agrupadora=es_raiz and grupo["miembros"] > 1,
+                miembros_agrupados=grupo["miembros"] if es_raiz else 1,
+                deuda_individual=deuda_individual,
+                saldo_favor_individual=favor_individual,
+                documentos_individuales=int(cantidad or 0),
+                deuda_actual=dinero(grupo["deuda"]) if es_raiz else CERO,
+                saldo_favor=dinero(grupo["favor"]) if es_raiz else CERO,
+                documentos_pendientes=grupo["documentos"] if es_raiz else 0,
+                deuda_mas_antigua=grupo["antigua"] if es_raiz else None,
+            )
+        )
+    if solo_con_movimientos:
+        resultado = [
+            item
+            for item in resultado
+            if item.deuda_actual > 0
+            or item.saldo_favor > 0
+            or item.deuda_individual > 0
+            or item.saldo_favor_individual > 0
+        ]
+    if buscar:
+        terminos = buscar.casefold().split()
+        resultado = [
+            item
+            for item in resultado
+            if all(
+                termino
+                in f"{item.codigo} {item.razon_social} {item.numero_documento} "
+                f"{item.cuenta_padre_nombre or ''}".casefold()
+                for termino in terminos
+            )
+        ]
+    return resultado
 
 
 @router.get("/cuentas-corrientes/{tipo}", dependencies=[Depends(requerir_permiso("tesoreria.ver"))])
@@ -502,12 +662,14 @@ async def cuentas_corrientes(
 ) -> list[dict]:
     if tipo == "clientes":
         consulta = (
-            select(VentaDocumento, Socio)
+            select(VentaDocumento, Socio, PuntoVenta)
             .join(Socio, Socio.id == VentaDocumento.cliente_id)
+            .outerjoin(PuntoVenta, PuntoVenta.id == VentaDocumento.punto_venta_id)
             .where(VentaDocumento.estado == "CONFIRMADO")
         )
         if socio_id:
-            consulta = consulta.where(VentaDocumento.cliente_id == socio_id)
+            ids_visibles = await ids_cuenta_visible(socio_id, "cliente", sesion)
+            consulta = consulta.where(VentaDocumento.cliente_id.in_(ids_visibles))
         if solo_pendientes:
             consulta = consulta.where(VentaDocumento.saldo_pendiente > 0)
         filas = (await sesion.execute(consulta.order_by(VentaDocumento.fecha_realizacion))).all()
@@ -515,14 +677,18 @@ async def cuentas_corrientes(
             {
                 "id": d.id,
                 "numero": d.numero,
-                "numero_externo": None,
+                "numero_externo": (
+                    f"{d.letra} {p.codigo}-{d.numero:08d}"
+                    if p is not None and d.numero is not None
+                    else f"{d.letra} #{d.numero or 0}"
+                ),
                 "socio_id": s.id,
                 "socio_nombre": s.razon_social,
                 "total": d.total_bruto,
                 "saldo_pendiente": d.saldo_pendiente,
                 "fecha": d.fecha_realizacion,
             }
-            for d, s in filas
+            for d, s, p in filas
         ]
     if tipo == "proveedores":
         consulta = (
@@ -531,7 +697,8 @@ async def cuentas_corrientes(
             .where(FacturaCompra.estado == "CONFIRMADO")
         )
         if socio_id:
-            consulta = consulta.where(FacturaCompra.proveedor_id == socio_id)
+            ids_visibles = await ids_cuenta_visible(socio_id, "proveedor", sesion)
+            consulta = consulta.where(FacturaCompra.proveedor_id.in_(ids_visibles))
         if solo_pendientes:
             consulta = consulta.where(FacturaCompra.saldo_pendiente > 0)
         filas = (await sesion.execute(consulta.order_by(FacturaCompra.fecha_realizacion))).all()
@@ -539,7 +706,7 @@ async def cuentas_corrientes(
             {
                 "id": d.id,
                 "numero": d.numero,
-                "numero_externo": d.numero_proveedor,
+                "numero_externo": d.comprobante_proveedor,
                 "socio_id": s.id,
                 "socio_nombre": s.razon_social,
                 "total": d.total_bruto,
@@ -644,7 +811,8 @@ async def listar_cobros(
 ):
     consulta = select(CobroDocumento).order_by(CobroDocumento.fecha_realizacion.desc()).limit(300)
     if socio_id:
-        consulta = consulta.where(CobroDocumento.cliente_id == socio_id)
+        ids_visibles = await ids_cuenta_visible(socio_id, "cliente", sesion)
+        consulta = consulta.where(CobroDocumento.cliente_id.in_(ids_visibles))
     return [await cobro_vista(x, sesion) for x in await sesion.scalars(consulta)]
 
 
@@ -658,7 +826,8 @@ async def listar_pagos(
 ):
     consulta = select(PagoDocumento).order_by(PagoDocumento.fecha_realizacion.desc()).limit(300)
     if socio_id:
-        consulta = consulta.where(PagoDocumento.proveedor_id == socio_id)
+        ids_visibles = await ids_cuenta_visible(socio_id, "proveedor", sesion)
+        consulta = consulta.where(PagoDocumento.proveedor_id.in_(ids_visibles))
     return [await pago_vista(x, sesion) for x in await sesion.scalars(consulta)]
 
 
@@ -844,6 +1013,67 @@ async def crear_movimiento(
     await sesion.commit()
     await sesion.refresh(item)
     return {"id": item.id, "fecha": item.fecha_realizacion}
+
+
+@router.post(
+    "/cajas/retiros",
+    status_code=201,
+    dependencies=[Depends(requerir_permiso("tesoreria.gestionar"))],
+)
+async def crear_retiro(
+    datos: RetiroCajaCrear,
+    usuario: Usuario = Depends(obtener_usuario_actual),
+    sesion: AsyncSession = Depends(obtener_sesion),
+) -> dict:
+    await validar_apertura(datos.apertura_caja_id, sesion)
+    if datos.destino == "GASTO_DIRECTO":
+        proveedor = await sesion.get(Socio, datos.proveedor_id) if datos.proveedor_id else None
+        if datos.proveedor_id is not None and (
+            proveedor is None or not proveedor.activo or not proveedor.es_proveedor
+        ):
+            raise HTTPException(400, "Proveedor inexistente o inactivo")
+        movimiento = MovimientoCaja(
+            apertura_caja_id=datos.apertura_caja_id,
+            tipo="EGRESO",
+            medio=datos.medio,
+            importe=dinero(datos.importe),
+            concepto=datos.concepto,
+            categoria="GASTO_DIRECTO",
+            proveedor_id=datos.proveedor_id,
+            referencia=datos.referencia,
+            estado="CONFIRMADO",
+            usuario_id=usuario.id,
+        )
+        sesion.add(movimiento)
+        await sesion.commit()
+        await sesion.refresh(movimiento)
+        return {"id": movimiento.id, "tipo": "GASTO_DIRECTO", "numero": None}
+
+    proveedor = await sesion.get(Socio, datos.proveedor_id)
+    if proveedor is None or not proveedor.activo or not proveedor.es_proveedor:
+        raise HTTPException(400, "Proveedor inexistente o inactivo")
+    numero = await sesion.scalar(select(Sequence("secuencia_pagos").next_value()))
+    pago = PagoDocumento(
+        numero=numero,
+        proveedor_id=proveedor.id,
+        apertura_caja_id=datos.apertura_caja_id,
+        estado="CONFIRMADO",
+        total=dinero(datos.importe),
+        observacion=datos.concepto,
+        usuario_id=usuario.id,
+    )
+    sesion.add(pago)
+    await sesion.flush()
+    sesion.add(
+        PagoMedioPago(
+            pago_id=pago.id,
+            medio=datos.medio,
+            importe=dinero(datos.importe),
+            referencia=datos.referencia,
+        )
+    )
+    await sesion.commit()
+    return {"id": pago.id, "tipo": "PAGO_PROVEEDOR", "numero": pago.numero}
 
 
 @router.post(

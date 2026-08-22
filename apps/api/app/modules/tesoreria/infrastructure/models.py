@@ -6,13 +6,11 @@ from sqlalchemy import (
     BigInteger,
     DateTime,
     ForeignKey,
-    Index,
     Numeric,
     String,
     Text,
     UniqueConstraint,
     func,
-    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -53,15 +51,6 @@ class PagoMedioPago(Base):
 
 class ImputacionPagoFactura(Base):
     __tablename__ = "imputaciones_pagos_facturas"
-    __table_args__ = (
-        Index(
-            "uq_imputacion_pago_factura_activa",
-            "pago_id",
-            "factura_id",
-            unique=True,
-            postgresql_where=text("estado = 'ACTIVA'"),
-        ),
-    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     pago_id: Mapped[UUID] = mapped_column(
@@ -94,6 +83,11 @@ class MovimientoCaja(Base):
     medio: Mapped[str] = mapped_column(String(30), default="EFECTIVO")
     importe: Mapped[Decimal] = mapped_column(Numeric(18, 2))
     concepto: Mapped[str] = mapped_column(String(200))
+    categoria: Mapped[str] = mapped_column(String(30), default="MOVIMIENTO_MANUAL", index=True)
+    proveedor_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("socios.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    referencia: Mapped[str | None] = mapped_column(String(120), nullable=True)
     estado: Mapped[str] = mapped_column(String(20), default="CONFIRMADO", index=True)
     usuario_id: Mapped[UUID] = mapped_column(ForeignKey("usuarios.id", ondelete="RESTRICT"))
     fecha_realizacion: Mapped[datetime] = mapped_column(

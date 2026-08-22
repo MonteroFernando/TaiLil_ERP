@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class UnidadMedidaVista(BaseModel):
@@ -533,6 +533,7 @@ class PosVentaCrear(BaseModel):
     almacen_id: UUID
     lineas: list[PosVentaLineaCrear] = Field(min_length=1)
     pagos: list[PosMedioPagoCrear] = Field(default_factory=list)
+    destino_excedente: Literal["VUELTO", "SALDO_FAVOR"] | None = None
     borrador_id: UUID | None = None
     apertura_caja_id: UUID | None = None
 
@@ -543,6 +544,8 @@ class PosVentaCrear(BaseModel):
         )
         if cuentas_corrientes > 1:
             raise ValueError("Solo se permite una imputacion a CUENTA CORRIENTE")
+        if self.destino_excedente == "SALDO_FAVOR" and self.cliente_id is None:
+            raise ValueError("Para dejar saldo a favor debe seleccionar un cliente")
         return self
 
 
@@ -629,6 +632,8 @@ class PosVentaVista(BaseModel):
     total_iva: Decimal
     total_bruto: Decimal
     saldo_pendiente: Decimal
+    vuelto: Decimal = Decimal("0.00")
+    saldo_favor_generado: Decimal = Decimal("0.00")
     cobro_id: UUID | None
     cobro_numero: int | None
     fecha_realizacion: datetime
@@ -663,10 +668,27 @@ class FacturaCompraLineaCrear(CompraLineaCantidad):
 class FacturaCompraCrear(BaseModel):
     proveedor_id: UUID
     almacen_id: UUID
-    numero_proveedor: str = Field(min_length=1, max_length=80)
+    letra: str = Field(min_length=1, max_length=1, pattern=r"^[A-Za-z]$")
+    punto_emision: str = Field(min_length=1, max_length=5, pattern=r"^\d{1,5}$")
+    numero_factura: str = Field(min_length=1, max_length=20, pattern=r"^\d{1,20}$")
     ingreso_id: UUID | None = None
     politica_costo: Literal["REEMPLAZAR", "PROMEDIO", "NO_MODIFICAR"]
     lineas: list[FacturaCompraLineaCrear] = Field(min_length=1)
+
+    @field_validator("letra")
+    @classmethod
+    def normalizar_letra(cls, valor: str) -> str:
+        return valor.upper()
+
+    @field_validator("punto_emision")
+    @classmethod
+    def normalizar_punto_emision(cls, valor: str) -> str:
+        return valor.zfill(5)
+
+    @field_validator("numero_factura")
+    @classmethod
+    def normalizar_numero_factura(cls, valor: str) -> str:
+        return valor.zfill(8)
 
 
 class CompraLineaVista(BaseModel):
@@ -694,6 +716,10 @@ class DocumentoCompraVista(BaseModel):
     estado: str
     fecha_realizacion: datetime
     numero_proveedor: str | None = None
+    letra: str | None = None
+    punto_emision: str | None = None
+    numero_factura: str | None = None
+    comprobante_proveedor: str | None = None
     ingreso_id: UUID | None = None
     politica_costo: str | None = None
     total_bruto: Decimal | None = None

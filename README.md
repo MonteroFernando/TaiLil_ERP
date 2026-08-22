@@ -33,11 +33,11 @@ npm install
 npm run dev
 ```
 
-Con el entorno virtual del backend activo:
+Desde la raiz, usando explicitamente el Python del entorno virtual:
 
 ```powershell
-pip install -r apps/api/requirements.txt
-uvicorn app.main:app --reload --host 127.0.0.1 --port 8000 --app-dir apps/api
+& ".\.venv\Scripts\python.exe" -m pip install -r ".\apps\api\requirements.txt"
+& ".\.venv\Scripts\python.exe" -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000 --app-dir ".\apps\api"
 ```
 
 - Web: `http://localhost:3000`
@@ -49,9 +49,10 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8000 --app-dir apps/api
 Primera instalacion de la base:
 
 ```powershell
-python -m alembic -c apps/api/alembic.ini upgrade head
-cd apps/api
-python -m app.scripts.crear_administrador_inicial
+& ".\.venv\Scripts\python.exe" -m alembic -c ".\apps\api\alembic.ini" upgrade head
+Push-Location ".\apps\api"
+& "..\..\.venv\Scripts\python.exe" -m app.scripts.crear_administrador_inicial
+Pop-Location
 ```
 
 ## Convenciones principales

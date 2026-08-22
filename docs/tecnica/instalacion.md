@@ -23,25 +23,24 @@ Desde la raiz:
 
 ```powershell
 py -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-pip install -r apps/api/requirements.txt
-uvicorn app.main:app --reload --host 127.0.0.1 --port 8000 --app-dir apps/api
+& ".\.venv\Scripts\python.exe" -m pip install --upgrade pip
+& ".\.venv\Scripts\python.exe" -m pip install -r ".\apps\api\requirements.txt"
+& ".\.venv\Scripts\python.exe" -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000 --app-dir ".\apps\api"
 ```
 
 Antes del primer inicio, aplicar la base y crear el administrador:
 
 ```powershell
-python -m alembic -c apps/api/alembic.ini upgrade head
-cd apps/api
-python -m app.scripts.crear_administrador_inicial
-cd ../..
+& ".\.venv\Scripts\python.exe" -m alembic -c ".\apps\api\alembic.ini" upgrade head
+Push-Location ".\apps\api"
+& "..\..\.venv\Scripts\python.exe" -m app.scripts.crear_administrador_inicial
+Pop-Location
 ```
 
 Pruebas:
 
 ```powershell
-pytest apps/api/tests
+& ".\.venv\Scripts\python.exe" -m pytest ".\apps\api\tests"
 ```
 
 ## Frontend
@@ -77,4 +76,4 @@ docker compose stop postgres
 
 Antes de una instalacion nueva, confirme que Node.js, npm, Python y Docker se encuentren disponibles en `PATH`. Esa comprobacion corresponde al equipo donde se desplegara el sistema y no describe necesariamente el servidor que actualmente esta en funcionamiento.
 
-Para actualizar una instalacion existente sin perder datos, siga el procedimiento versionado en `PASOS_ACTUALIZAR_Y_ARRANCAR.txt`: primero realice el respaldo, luego ejecute `alembic upgrade head` y finalmente inicie los servicios con los scripts PowerShell.
+Para actualizar una instalacion existente sin perder datos, siga el procedimiento versionado en `PASOS_ACTUALIZAR_Y_ARRANCAR.txt`: primero realice el respaldo, luego ejecute Alembic mediante `.\.venv\Scripts\python.exe -m alembic` y finalmente inicie los servicios con los scripts PowerShell. No use el comando global `alembic` ni el Python global, porque pueden no tener instaladas las dependencias del proyecto.

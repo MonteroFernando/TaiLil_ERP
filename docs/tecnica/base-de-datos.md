@@ -2,7 +2,7 @@
 
 ## Revision vigente
 
-La cadena de migraciones aplicada llega a `20260822_0045 (head)`. Alembic es el unico mecanismo autorizado para modificar estructura o completar datos derivados durante una actualizacion.
+La cadena de migraciones aplicada llega a `20260822_0048 (head)`. Alembic es el unico mecanismo autorizado para modificar estructura o completar datos derivados durante una actualizacion. La revision `0046` habilita conciliaciones parciales por tramos; la `0047` agrega trazabilidad a retiros de caja; y la `0048` agrega letra, POI y numero a facturas de proveedor. La ultima revision separa comprobantes historicos reconocibles y conserva la referencia original cuando no puede interpretarla. Ninguna borra documentos financieros existentes.
 
 Las actualizaciones normales son incrementales y conservan datos. Esto no reemplaza el respaldo operativo de PostgreSQL: antes de actualizar un servidor productivo debe existir una copia recuperable independiente del volumen o servicio en uso.
 

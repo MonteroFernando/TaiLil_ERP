@@ -44,11 +44,13 @@ Invoke-WebRequest "http://127.0.0.1:3000/api/v1/sistema/estado" -UseBasicParsing
 Get-NetTCPConnection -State Listen -LocalPort 3000,8000
 ```
 
-El resultado final de `current` debe ser `20260821_0041 (head)`. `heads` debe mostrar una sola cabeza. Si PostgreSQL pertenece a `compose.yaml`, iniciar antes con `docker compose up -d postgres`; no ejecutar ese paso cuando la base es un servicio externo.
+El resultado final de `current` debe ser `20260822_0048 (head)`. `heads` debe mostrar una sola cabeza. Si PostgreSQL pertenece a `compose.yaml`, iniciar antes con `docker compose up -d postgres`; no ejecutar ese paso cuando la base es un servicio externo.
 
 Alembic aplica cambios incrementales y conserva datos. No usar `drop`, recreacion de esquema, restauraciones ni `downgrade` como forma normal de actualizar. Antes de una reversa extraordinaria se requiere respaldo verificado y revision de incompatibilidades, en especial datos creados desde las migraciones `0037` a `0041`.
 
 ## Arranque y detencion
+
+El script de detencion finaliza el proceso registrado y sus descendientes. Tambien revisa los puertos 8000 y 3000 para retirar procesos huerfanos solamente cuando la linea de comando pertenece a esta instalacion del ERP. Esto evita que una instancia anterior iniciada con recarga siga respondiendo despues de actualizar backend o base de datos.
 
 Arrancar sin actualizar:
 

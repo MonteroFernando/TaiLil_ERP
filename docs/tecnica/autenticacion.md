@@ -45,18 +45,19 @@ Los JWT viajan en cookies `HttpOnly`; no quedan disponibles para JavaScript del 
 
 ## Instalacion inicial
 
-Con el entorno virtual activo y desde la raiz:
+Desde la raiz, usando el Python del entorno virtual:
 
 ```powershell
-python -m alembic -c apps/api/alembic.ini upgrade head
-python -m app.scripts.crear_administrador_inicial
+& ".\.venv\Scripts\python.exe" -m alembic -c ".\apps\api\alembic.ini" upgrade head
+Push-Location ".\apps\api"
+& "..\..\.venv\Scripts\python.exe" -m app.scripts.crear_administrador_inicial
+Pop-Location
 ```
 
-Para el segundo comando, ejecutar desde `apps/api` o definir el directorio de la aplicacion:
+Si la consola ya se encuentra dentro de `apps/api`, el segundo comando equivalente es:
 
 ```powershell
-cd apps/api
-python -m app.scripts.crear_administrador_inicial
+& "..\..\.venv\Scripts\python.exe" -m app.scripts.crear_administrador_inicial
 ```
 
 El comando es idempotente: si el usuario ya existe, no cambia su contraseña ni sus permisos.

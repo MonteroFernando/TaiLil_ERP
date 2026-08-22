@@ -4,6 +4,7 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
+from app.modules.articulos.api.router import descontar_vuelto_del_efectivo
 from app.modules.articulos.api.schemas import (
     ArticuloCrear,
     ArticuloUnidadCrear,
@@ -157,6 +158,35 @@ def test_pos_no_acepta_dos_imputaciones_a_cuenta_corriente() -> None:
                 {"medio": "CUENTA_CORRIENTE", "importe": "50"},
             ],
         )
+
+
+def test_pos_exige_cliente_para_dejar_excedente_a_favor() -> None:
+    with pytest.raises(ValidationError, match="debe seleccionar un cliente"):
+        PosVentaCrear(
+            almacen_id=uuid4(),
+            lineas=[{"articulo_id": uuid4(), "cantidad_base": "1"}],
+            pagos=[{"medio": "EFECTIVO", "importe": "200"}],
+            destino_excedente="SALDO_FAVOR",
+        )
+
+
+def test_pos_descuenta_el_vuelto_solo_del_efectivo_retenido() -> None:
+    venta = PosVentaCrear(
+        almacen_id=uuid4(),
+        lineas=[{"articulo_id": uuid4(), "cantidad_base": "1"}],
+        pagos=[
+            {"medio": "TARJETA", "importe": "80"},
+            {"medio": "EFECTIVO", "importe": "50"},
+        ],
+        destino_excedente="VUELTO",
+    )
+
+    pagos_retenidos = descontar_vuelto_del_efectivo(venta.pagos, Decimal("30"))
+
+    assert [(pago.medio, pago.importe) for pago in pagos_retenidos] == [
+        ("TARJETA", Decimal("80")),
+        ("EFECTIVO", Decimal("20.00")),
+    ]
 
 
 def test_rotacion_compras_conserva_cantidades_numericas_y_contexto() -> None:

@@ -11,9 +11,8 @@ No configure `NEXT_PUBLIC_API_URL` con `localhost:8000`. Debe omitirse o estable
 Desde la raiz del proyecto:
 
 ```powershell
-.\.venv\Scripts\Activate.ps1
-pip install -r apps\api\requirements.txt
-python -m alembic -c apps\api\alembic.ini upgrade head
+& ".\.venv\Scripts\python.exe" -m pip install -r ".\apps\api\requirements.txt"
+& ".\.venv\Scripts\python.exe" -m alembic -c ".\apps\api\alembic.ini" upgrade head
 cd apps\web
 npm ci
 npm run build

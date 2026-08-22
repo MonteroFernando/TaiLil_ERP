@@ -24,7 +24,7 @@ type Apertura={id:string;caja_id:string;caja_codigo:string;caja_descripcion:stri
 type Caja={id:string;punto_venta_id:string;codigo:string;descripcion:string;activo:boolean};
 type Punto={id:string;codigo:string;almacen_id:string;activo:boolean};
 type LineaVenta={articulo_id:string;articulo_codigo:string;articulo_descripcion:string;es_pesable:boolean;lista_nombre:string;cantidad_base:string;precio_unitario_bruto:string;precio_anterior_bruto:string|null;total_bruto:string};
-type Venta = { id:string;numero:number|null;numero_completo:string|null;cliente_id:string;cliente_nombre:string;almacen_id:string;estado:string;cobro_numero:number|null;total_bruto:string;saldo_pendiente:string;lineas:LineaVenta[] };
+type Venta = { id:string;numero:number|null;numero_completo:string|null;cliente_id:string;cliente_nombre:string;almacen_id:string;estado:string;cobro_numero:number|null;total_bruto:string;saldo_pendiente:string;vuelto:string;saldo_favor_generado:string;lineas:LineaVenta[] };
 type PrecioVentaConsulta = { lista_id:string;lista_nombre:string;articulo_id:string;articulo_codigo:string;articulo_descripcion:string;precio_venta_bruto:string };
 type CuentaCorrienteCliente = { socio_id:string;activa:boolean;limite_deuda:string;limite_periodo:string;temporalidad:"diaria"|"semanal"|"mensual";dias_maximos_deuda:number;deuda_actual:string;consumo_periodo:string;credito_disponible:string;saldo_favor:string;disponible_total:string;deuda_vencida:boolean };
 type ControlCaja = { apertura_id:string;total_ventas:string;cantidad_ventas:number;total_cobros:string;total_pagos:string;total_ingresos:string;total_egresos:string;medios:{medio:string;esperado:string}[] };
@@ -38,6 +38,7 @@ export default function PuntoVenta() {
   const [errorCuentaCliente, setErrorCuentaCliente] = useState("");
   const [lineas, setLineas] = useState<Linea[]>([]);
   const [pagos, setPagos] = useState<Pago[]>([{ medio: "EFECTIVO", importe: "", referencia: "" }]);
+  const [destinoExcedente,setDestinoExcedente]=useState<"VUELTO"|"SALDO_FAVOR"|null>(null);
   const [mensaje, setMensaje] = useState("");
   const [procesando, setProcesando] = useState(false);
   const [cobroAbierto, setCobroAbierto] = useState(false);
@@ -68,7 +69,15 @@ export default function PuntoVenta() {
   const saldoFavorAplicado = Math.min(saldoFavorDisponible, Math.max(total - pagado, 0));
   const saldoCuentaCorrienteRequerido = Math.max(total - pagado - saldoFavorAplicado, 0);
   const diferenciaCobro = total - pagado - saldoFavorAplicado - importeCuentaCorriente;
-  const cobroCoincide = Math.abs(diferenciaCobro) < 0.005;
+  const efectivoIngresado = pagos.filter((pago)=>pago.medio==="EFECTIVO").reduce((suma,pago)=>suma+Number(pago.importe||0),0);
+  const excedenteCobro = Math.max(pagado-total,0);
+  const cobroCoincideExacto = Math.abs(diferenciaCobro) < 0.005;
+  const excedenteAsignable = excedenteCobro > 0.004
+    && importeCuentaCorriente <= 0.004
+    && excedenteCobro <= efectivoIngresado + 0.004
+    && destinoExcedente !== null
+    && (destinoExcedente !== "SALDO_FAVOR" || Boolean(cliente));
+  const cobroValido = cobroCoincideExacto || excedenteAsignable;
   const cuentaCorrienteValida = importeCuentaCorriente <= 0 || (
     Boolean(cliente) &&
     Boolean(cuentaCliente?.activa) &&
@@ -106,6 +115,7 @@ export default function PuntoVenta() {
 
   function seleccionarCliente(socio: Socio | null) {
     setCliente(socio);
+    if(!socio&&destinoExcedente==="SALDO_FAVOR")setDestinoExcedente(null);
     setPagos((actuales) => actuales.filter((pago) => pago.medio !== "CUENTA_CORRIENTE"));
     void cargarCuentaCliente(socio);
   }
@@ -178,7 +188,7 @@ export default function PuntoVenta() {
         setCobroAbierto(false);
       } else if (e.key === "F10" && !cobroAbierto && !consultaPreciosAbierta && lineas.length > 0) {
         e.preventDefault();
-        setErrorCobro("");setCobroAbierto(true);
+        setErrorCobro("");setDestinoExcedente(null);setCobroAbierto(true);
       }
     }
     window.addEventListener("keydown", accesoRapido);
@@ -275,8 +285,10 @@ export default function PuntoVenta() {
   async function confirmar(e: FormEvent) {
     e.preventDefault();
     if (!apertura || !almacen || !lineas.length) return;
-    if (!cobroCoincide || cantidadCuentasCorrientes > 1 || !cuentaCorrienteValida) {
-      setErrorCobro("La venta debe quedar cubierta exactamente por medios de pago, saldo a favor y una cuenta corriente seleccionada de forma explicita.");
+    if (!cobroValido || cantidadCuentasCorrientes > 1 || !cuentaCorrienteValida) {
+      setErrorCobro(excedenteCobro>0.004
+        ? "El efectivo supera el total. Elija expresamente si entrega el excedente como vuelto o lo deja a favor del cliente."
+        : "La venta debe quedar cubierta exactamente por medios de pago, saldo a favor y una cuenta corriente seleccionada de forma explicita.");
       return;
     }
     const ventanaImpresion = modoImpresion === "DIRECTA" ? window.open("about:blank", "ticket-directo-tailil", "width=420,height=720") : null;
@@ -302,6 +314,7 @@ export default function PuntoVenta() {
         almacen_id: almacen,
         lineas: lineas.map((x) => ({ articulo_id: x.id, cantidad_base: x.cantidad })),
         pagos: pagosValidos.map((x) => ({ ...x, referencia: x.referencia || null })),
+        destino_excedente: excedenteCobro>0.004?destinoExcedente:null,
       }),
     });
     const datos = await respuesta.json();
@@ -313,7 +326,12 @@ export default function PuntoVenta() {
       return;
     }
     const venta: Venta = datos;
-    setMensaje(`PRESUPUESTO ${venta.numero_completo} confirmado · Saldo pendiente ${formatearMoneda(venta.saldo_pendiente)}`);
+    const resultadoExcedente=Number(venta.vuelto)>0
+      ?` · Vuelto entregado ${formatearMoneda(Number(venta.vuelto))}`
+      :Number(venta.saldo_favor_generado)>0
+        ?` · Saldo a favor generado ${formatearMoneda(Number(venta.saldo_favor_generado))}`
+        :"";
+    setMensaje(`PRESUPUESTO ${venta.numero_completo} confirmado · Saldo pendiente ${formatearMoneda(venta.saldo_pendiente)}${resultadoExcedente}`);
     setUltimaVenta(venta);
     void cargarCuentaCliente(cliente);
     if (modoImpresion === "DIRECTA" && ventanaImpresion) {
@@ -325,6 +343,7 @@ export default function PuntoVenta() {
     confirmandoRef.current=false;
     setLineas([]);
     setPagos([{ medio: "EFECTIVO", importe: "", referencia: "" }]);
+    setDestinoExcedente(null);
     setCobroAbierto(false);
     } catch (error) {
       ventanaImpresion?.close();
@@ -362,7 +381,7 @@ export default function PuntoVenta() {
           </div>
         </section>
         <aside className="order-first space-y-3 overflow-y-auto pb-2 xl:order-none xl:min-h-0">
-          <section className="sticky top-0 z-20 rounded-2xl border border-[var(--marca)] bg-white p-5 shadow-md"><small className="font-semibold uppercase tracking-wider text-[var(--texto-suave)]">Total a cobrar</small><b className="block text-4xl text-[var(--marca)]">{formatearMoneda(total)}</b><p className="mt-1 text-xs text-[var(--texto-suave)]">{lineas.length} {lineas.length===1?"artículo":"artículos"} · {formatearCantidad(lineas.reduce((suma,linea)=>suma+linea.cantidad,0))} unidades</p><button type="button" disabled={!lineas.length} onClick={() => { setErrorCobro("");setCobroAbierto(true); }} className="mt-4 w-full rounded-xl bg-[var(--marca)] px-5 py-3 text-lg font-semibold text-white disabled:opacity-40">Cobrar <kbd className="ml-2 rounded border border-white/50 px-2 py-1 text-xs">F10</kbd></button><button type="button" onClick={() => { setCobroAbierto(false); setConsultaPreciosAbierta(true); }} className="mt-2 w-full rounded-xl border px-4 py-2 font-semibold text-[var(--marca)]">Consultar precios <kbd className="ml-2 rounded border px-2 py-1 text-xs">F3</kbd></button></section>
+          <section className="sticky top-0 z-20 rounded-2xl border border-[var(--marca)] bg-white p-5 shadow-md"><small className="font-semibold uppercase tracking-wider text-[var(--texto-suave)]">Total a cobrar</small><b className="block text-4xl text-[var(--marca)]">{formatearMoneda(total)}</b><p className="mt-1 text-xs text-[var(--texto-suave)]">{lineas.length} {lineas.length===1?"artículo":"artículos"} · {formatearCantidad(lineas.reduce((suma,linea)=>suma+linea.cantidad,0))} unidades</p><button type="button" disabled={!lineas.length} onClick={() => { setErrorCobro("");setDestinoExcedente(null);setCobroAbierto(true); }} className="mt-4 w-full rounded-xl bg-[var(--marca)] px-5 py-3 text-lg font-semibold text-white disabled:opacity-40">Cobrar <kbd className="ml-2 rounded border border-white/50 px-2 py-1 text-xs">F10</kbd></button><button type="button" onClick={() => { setCobroAbierto(false); setConsultaPreciosAbierta(true); }} className="mt-2 w-full rounded-xl border px-4 py-2 font-semibold text-[var(--marca)]">Consultar precios <kbd className="ml-2 rounded border px-2 py-1 text-xs">F3</kbd></button></section>
           <section className="rounded-2xl border bg-white p-4"><label className="text-sm font-semibold">Cliente <small className="font-normal text-[var(--texto-suave)]">(CONSUMIDOR FINAL)</small><BuscadorCliente seleccionar={seleccionarCliente} /></label><EstadoCuentaCorriente cliente={cliente} cuenta={cuentaCliente} cargando={cargandoCuentaCliente} error={errorCuentaCliente}/></section>
           <section className="rounded-2xl border bg-white p-4"><label className="text-xs font-bold uppercase text-[var(--texto-suave)]">Almacén<select disabled className="mt-1 w-full rounded-xl border bg-gray-100 p-2 text-sm font-normal normal-case" value={almacen} onChange={(e) => setAlmacen(e.target.value)} required><option value="">Seleccionar</option>{almacenes.filter((x) => x.activo).map((x) => <option key={x.id} value={x.id}>{x.codigo} - {x.descripcion}</option>)}</select></label><div className="mt-3"><SelectorModoImpresion modo={modoImpresion} cambiar={cambiarModoImpresion}/></div></section>
           {ultimaVenta&&<section className="rounded-2xl border bg-white p-4 text-sm"><small className="text-[var(--texto-suave)]">Última venta</small><b className="block">{ultimaVenta.numero_completo}</b><div className="mt-2 flex gap-2"><button type="button" onClick={()=>window.open(`${apiUrl}/articulos/pos/ventas/${ultimaVenta.id}/imprimir?formato=ticket`,"_blank")} className="rounded-lg border px-3 py-2">Ticket</button><button type="button" onClick={()=>window.open(`${apiUrl}/articulos/pos/ventas/${ultimaVenta.id}/imprimir?formato=a4`,"_blank")} className="rounded-lg border px-3 py-2">A4</button></div></section>}
@@ -375,9 +394,10 @@ export default function PuntoVenta() {
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><h2 className="text-lg font-semibold">Como se cubre la venta</h2><div className="flex flex-wrap gap-2"><button type="button" className="rounded-lg border px-3 py-2 text-sm font-semibold text-[var(--marca)]" onClick={() => setPagos([...pagos, { medio: "TARJETA", importe: "", referencia: "" }])}>Agregar medio</button><button type="button" disabled={!cliente || cantidadCuentasCorrientes > 0 || saldoCuentaCorrienteRequerido <= 0} className="rounded-lg border border-[var(--marca)] px-3 py-2 text-sm font-semibold text-[var(--marca)] disabled:cursor-not-allowed disabled:opacity-40" onClick={agregarCuentaCorriente}>Usar cuenta corriente</button></div></div>
           <div className="space-y-2">{pagos.map((pago, indice) => <div key={indice} className="grid gap-2 md:grid-cols-[200px_160px_1fr_auto]"><select className="rounded-xl border p-3" value={pago.medio} onChange={(e) => cambiarMedioPago(indice, e.target.value as Pago["medio"])}><option>EFECTIVO</option><option>TARJETA</option><option>TRANSFERENCIA</option><option>OTRO</option><option disabled={!cliente || (cantidadCuentasCorrientes > 0 && pago.medio !== "CUENTA_CORRIENTE")}>CUENTA_CORRIENTE</option></select><input autoFocus={indice === 0} className="rounded-xl border p-3" type="number" min="0" step="0.01" placeholder="Importe" value={pago.importe} onChange={(e) => setPagos(pagos.map((x, i) => i === indice ? { ...x, importe: e.target.value } : x))} /><input disabled={pago.medio === "CUENTA_CORRIENTE"} className="rounded-xl border p-3 disabled:bg-gray-100" placeholder={pago.medio === "CUENTA_CORRIENTE" ? "No corresponde" : "Referencia opcional"} value={pago.referencia} onChange={(e) => setPagos(pagos.map((x, i) => i === indice ? { ...x, referencia: e.target.value } : x))} /><button type="button" className="rounded-lg border px-3" onClick={() => setPagos(pagos.filter((_, i) => i !== indice))}>Quitar</button></div>)}</div>
           {!cliente&&saldoCuentaCorrienteRequerido>0&&<p className="mt-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">Para usar cuenta corriente primero debe seleccionar un cliente.</p>}
-          {!cobroCoincide&&<p className="mt-3 rounded-xl bg-amber-50 p-3 text-sm font-semibold text-amber-900">{diferenciaCobro>0?`Falta cubrir ${formatearMoneda(diferenciaCobro)}. Agregue un medio de pago o elija Cuenta corriente.`:`La cobertura supera el total por ${formatearMoneda(Math.abs(diferenciaCobro))}.`}</p>}
+          {excedenteCobro>0.004&&<div className="mt-4 rounded-2xl border-2 border-amber-300 bg-amber-50 p-4"><div className="flex flex-wrap items-end justify-between gap-3"><div><small className="font-bold uppercase tracking-wider text-amber-800">Efectivo mayor al ticket</small><p className="mt-1 text-sm text-amber-950">Recibido en efectivo: <b>{formatearMoneda(efectivoIngresado)}</b></p></div><div className="text-right"><small className="text-amber-800">Excedente</small><b className="block text-3xl text-amber-950">{formatearMoneda(excedenteCobro)}</b></div></div>{excedenteCobro>efectivoIngresado+0.004?<p className="mt-3 rounded-lg bg-red-100 p-3 text-sm font-semibold text-red-800">El excedente incluye medios que no son efectivo. Corrija los importes: solo el efectivo puede generar vuelto o saldo a favor.</p>:<><p className="mt-3 text-sm font-semibold text-amber-950">¿Qué desea hacer con el excedente?</p><div className="mt-2 grid gap-2 sm:grid-cols-2"><button type="button" onClick={()=>setDestinoExcedente("VUELTO")} className={`rounded-xl border-2 p-4 text-left ${destinoExcedente==="VUELTO"?"border-[var(--marca)] bg-white shadow-sm":"border-amber-200 bg-amber-50"}`}><b className="block">Dar vuelto</b><span className="text-sm">Entregar {formatearMoneda(excedenteCobro)} y registrar en caja solo lo retenido.</span></button><button type="button" disabled={!cliente} onClick={()=>setDestinoExcedente("SALDO_FAVOR")} className={`rounded-xl border-2 p-4 text-left disabled:cursor-not-allowed disabled:opacity-45 ${destinoExcedente==="SALDO_FAVOR"?"border-green-600 bg-white shadow-sm":"border-amber-200 bg-amber-50"}`}><b className="block">Dejar saldo a favor</b><span className="text-sm">Guardar {formatearMoneda(excedenteCobro)} para futuras compras.</span></button></div>{!cliente&&<p className="mt-2 text-xs font-semibold text-amber-900">Seleccione un cliente para poder dejar el excedente a su favor. Para Consumidor Final solo puede dar vuelto.</p>}</>}</div>}
+          {!cobroCoincideExacto&&excedenteCobro<=0.004&&<p className="mt-3 rounded-xl bg-amber-50 p-3 text-sm font-semibold text-amber-900">{diferenciaCobro>0?`Falta cubrir ${formatearMoneda(diferenciaCobro)}. Agregue un medio de pago o elija Cuenta corriente.`:`La cobertura supera el total por ${formatearMoneda(Math.abs(diferenciaCobro))}.`}</p>}
           {importeCuentaCorriente>0&&!cuentaCorrienteValida&&<p className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">La cuenta corriente seleccionada no esta habilitada, posee deuda vencida, no pudo consultarse o no tiene credito suficiente.</p>}
-          <div className="mt-5 flex flex-wrap items-end justify-end gap-6 border-t pt-4 text-right"><div><small>Total bruto</small><b className="block text-xl">{formatearMoneda(total)}</b></div><div><small>Pago inmediato</small><b className="block text-xl">{formatearMoneda(pagado)}</b></div><div><small>Saldo a favor</small><b className="block text-xl text-green-700">{formatearMoneda(saldoFavorAplicado)}</b></div><div><small>Cuenta corriente elegida</small><b className="block text-xl">{formatearMoneda(importeCuentaCorriente)}</b></div><button disabled={procesando || !almacen || !lineas.length || !cobroCoincide || cantidadCuentasCorrientes > 1 || !cuentaCorrienteValida} className="rounded-xl bg-[var(--marca)] px-5 py-3 font-semibold text-white disabled:opacity-40">{procesando ? "Confirmando..." : "Confirmar venta"}</button></div>
+          <div className="mt-5 flex flex-wrap items-end justify-end gap-6 border-t pt-4 text-right"><div><small>Total bruto</small><b className="block text-xl">{formatearMoneda(total)}</b></div><div><small>Pago inmediato</small><b className="block text-xl">{formatearMoneda(pagado)}</b></div>{excedenteCobro>0.004&&<div><small>{destinoExcedente==="SALDO_FAVOR"?"Saldo nuevo a favor":"Vuelto"}</small><b className="block text-xl text-amber-800">{formatearMoneda(excedenteCobro)}</b></div>}<div><small>Saldo a favor aplicado</small><b className="block text-xl text-green-700">{formatearMoneda(saldoFavorAplicado)}</b></div><div><small>Cuenta corriente elegida</small><b className="block text-xl">{formatearMoneda(importeCuentaCorriente)}</b></div><button disabled={procesando || !almacen || !lineas.length || !cobroValido || cantidadCuentasCorrientes > 1 || !cuentaCorrienteValida} className="rounded-xl bg-[var(--marca)] px-5 py-3 font-semibold text-white disabled:opacity-40">{procesando ? "Confirmando..." : "Confirmar venta"}</button></div>
           <p className="mt-3 text-xs text-[var(--texto-suave)]">La cuenta corriente nunca se supone por una diferencia: debe elegirla expresamente. El saldo a favor se aplica primero y no vuelve a ingresar en caja. Presione ESC para cerrar.</p>
         </section></div>}
       </form>
@@ -459,6 +479,8 @@ function BuscadorCliente({ seleccionar }: { seleccionar: (socio: Socio | null) =
   const [indice, setIndice] = useState(-1);
   const [abierto, setAbierto] = useState(false);
   const contenedor = useRef<HTMLDivElement>(null);
+  const listaResultados = useRef<HTMLDivElement>(null);
+  const opcionesResultados = useRef<(HTMLButtonElement|null)[]>([]);
   useEffect(() => {
     if (!texto.trim()) return;
     const temporizador = window.setTimeout(async () => {
@@ -470,7 +492,8 @@ function BuscadorCliente({ seleccionar }: { seleccionar: (socio: Socio | null) =
     return () => window.clearTimeout(temporizador);
   }, [texto]);
   useEffect(() => { const cerrar = (e: MouseEvent) => { if (!contenedor.current?.contains(e.target as Node)) setAbierto(false); }; document.addEventListener("mousedown", cerrar); return () => document.removeEventListener("mousedown", cerrar); }, []);
+  useEffect(() => { const lista=listaResultados.current,opcion=opcionesResultados.current[indice];if(!abierto||!lista||!opcion)return;const superior=opcion.offsetTop,inferior=superior+opcion.offsetHeight;if(superior<lista.scrollTop)lista.scrollTop=superior;else if(inferior>lista.scrollTop+lista.clientHeight)lista.scrollTop=inferior-lista.clientHeight; }, [abierto,indice]);
   function elegir(socio: Socio) { setTexto(`${socio.razon_social} - ${socio.numero_documento}`); seleccionar(socio); setAbierto(false); }
-  function teclado(e: KeyboardEvent<HTMLInputElement>) { if (!abierto) return; if (e.key === "ArrowDown") { e.preventDefault(); setIndice(Math.min(indice + 1, resultados.length - 1)); } else if (e.key === "ArrowUp") { e.preventDefault(); setIndice(Math.max(indice - 1, 0)); } else if (e.key === "Enter" && indice >= 0) { e.preventDefault(); elegir(resultados[indice]); } }
-  return <div ref={contenedor} className="relative"><input className="mt-1 w-full rounded-xl border p-3" value={texto} placeholder="Nombre, DNI o CUIT" autoComplete="off" onKeyDown={teclado} onChange={(e) => { setTexto(e.target.value); seleccionar(null); if (!e.target.value) setAbierto(false); }} />{abierto && <div className="absolute z-40 mt-1 max-h-64 w-full overflow-auto rounded-xl border bg-white p-1 shadow-xl">{resultados.map((x, i) => <button type="button" key={x.id} onClick={() => elegir(x)} className={`block w-full rounded-lg px-3 py-2 text-left text-sm ${i === indice ? "bg-[var(--marca-clara)]" : "hover:bg-[var(--fondo)]"}`}><b>{x.razon_social}</b><small className="block">{x.numero_documento}</small></button>)}</div>}</div>;
+  function teclado(e: KeyboardEvent<HTMLInputElement>) { if (!abierto) return; if (e.key === "ArrowDown") { e.preventDefault(); setIndice(Math.min(indice + 1, resultados.length - 1)); } else if (e.key === "ArrowUp") { e.preventDefault(); setIndice(Math.max(indice - 1, 0)); } else if (e.key === "Enter" && indice >= 0) { e.preventDefault(); elegir(resultados[indice]); } else if(e.key==="Escape")setAbierto(false); }
+  return <div ref={contenedor} className="relative"><input className="mt-1 w-full rounded-xl border p-3" value={texto} placeholder="Nombre, DNI o CUIT" autoComplete="off" onKeyDown={teclado} onChange={(e) => { setTexto(e.target.value); seleccionar(null); if (!e.target.value) setAbierto(false); }} />{abierto && <div ref={listaResultados} className="absolute z-40 mt-1 max-h-64 w-full overflow-auto rounded-xl border bg-white p-1 shadow-xl">{resultados.map((x, i) => <button ref={(elemento) => { opcionesResultados.current[i] = elemento; }} type="button" key={x.id} onMouseMove={() => setIndice(i)} onClick={() => elegir(x)} className={`block w-full rounded-lg px-3 py-2 text-left text-sm ${i === indice ? "bg-[var(--marca-clara)]" : "hover:bg-[var(--fondo)]"}`}><b>{x.razon_social}</b><small className="block">{x.numero_documento}</small></button>)}</div>}</div>;
 }

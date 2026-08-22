@@ -19,7 +19,7 @@ El backend es un monolito modular. Los routers se componen bajo `/api/v1`; los m
 ## Revisión de esquema
 
 ```text
-20260822_0045 (head)
+20260822_0048 (head)
 ```
 
 Evolución funcional reciente:
@@ -35,6 +35,9 @@ Evolución funcional reciente:
 | `0043` | Notas narrativas y devolución vinculada a caja |
 | `0044` | Autorización expresa para emitir notas de crédito |
 | `0045` | Fecha operativa para aperturas y calendario de cierres |
+| `0046` | Conciliaciones parciales repetidas con historial independiente |
+| `0047` | Retiros de caja categorizados y trazabilidad hacia proveedores |
+| `0048` | Comprobante de proveedor rastreable por letra, POI y numero |
 
 Las migraciones usan `ALTER`, altas de tablas, índices y actualizaciones controladas. No recrean la base ni eliminan datos para avanzar de versión. Antes de una actualización productiva igualmente se debe mantener un respaldo independiente de PostgreSQL.
 

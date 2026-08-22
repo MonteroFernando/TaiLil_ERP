@@ -52,6 +52,22 @@ class MovimientoCajaCrear(BaseModel):
     concepto: str = Field(min_length=3, max_length=200)
 
 
+class RetiroCajaCrear(BaseModel):
+    apertura_caja_id: UUID
+    destino: str = Field(pattern="^(GASTO_DIRECTO|PAGO_PROVEEDOR)$")
+    medio: str = Field(default="EFECTIVO", min_length=1, max_length=30)
+    importe: Decimal = Field(gt=0, decimal_places=2)
+    concepto: str = Field(min_length=3, max_length=200)
+    referencia: str | None = Field(default=None, max_length=120)
+    proveedor_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def validar_destino(self):
+        if self.destino == "PAGO_PROVEEDOR" and self.proveedor_id is None:
+            raise ValueError("El pago a proveedor requiere seleccionar un proveedor")
+        return self
+
+
 class DenominacionArqueoCrear(BaseModel):
     denominacion: Decimal = Field(gt=0, decimal_places=2)
     cantidad: int = Field(ge=0)
@@ -109,6 +125,16 @@ class CuentaCorrienteClienteResumen(BaseModel):
     numero_documento: str
     cuenta_configurada: bool
     cuenta_activa: bool
+    cuenta_padre_id: UUID | None = None
+    cuenta_padre_nombre: str | None = None
+    es_cuenta_agrupadora: bool = False
+    miembros_agrupados: int = 1
+    limite_asignado: Decimal
+    credito_ocupado: Decimal
+    credito_disponible: Decimal
+    deuda_individual: Decimal
+    saldo_favor_individual: Decimal
+    documentos_individuales: int
     deuda_actual: Decimal
     saldo_favor: Decimal
     documentos_pendientes: int
@@ -120,6 +146,13 @@ class CuentaCorrienteProveedorResumen(BaseModel):
     codigo: str
     razon_social: str
     numero_documento: str
+    cuenta_padre_id: UUID | None = None
+    cuenta_padre_nombre: str | None = None
+    es_cuenta_agrupadora: bool = False
+    miembros_agrupados: int = 1
+    deuda_individual: Decimal
+    saldo_favor_individual: Decimal
+    documentos_individuales: int
     deuda_actual: Decimal
     saldo_favor: Decimal
     documentos_pendientes: int

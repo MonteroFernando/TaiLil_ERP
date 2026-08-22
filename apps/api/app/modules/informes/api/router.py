@@ -9,12 +9,15 @@ from sqlalchemy.orm import aliased
 
 from app.infrastructure.database.sesion import obtener_sesion
 from app.modules.articulos.infrastructure.models import (
+    AperturaCaja,
     Articulo,
     ArticuloProveedor,
     CajaVenta,
     CobroDocumento,
     CobroMedioPago,
     CodigoBarraArticulo,
+    FacturaCompra,
+    ImputacionCobroVenta,
     NotaCredito,
     NotaCreditoDetalle,
     PuntoVenta,
@@ -23,11 +26,13 @@ from app.modules.articulos.infrastructure.models import (
     VentaDocumentoDetalle,
 )
 from app.modules.tesoreria.infrastructure.models import (
+    ImputacionPagoFactura,
     MovimientoCaja,
     PagoDocumento,
     PagoMedioPago,
 )
 from app.modules.usuarios.api.dependencias import requerir_permiso
+from app.modules.usuarios.infrastructure.models import Usuario
 
 router = APIRouter(prefix="/informes", tags=["Informes"])
 
@@ -122,7 +127,7 @@ async def flujo_dinero(
             .join(CobroMedioPago, CobroMedioPago.cobro_id == CobroDocumento.id)
             .where(
                 CobroDocumento.estado == "CONFIRMADO",
-            CobroMedioPago.medio.notin_(("NOTA_CREDITO", "DEVOLUCION_NC")),
+                CobroMedioPago.medio.notin_(("NOTA_CREDITO", "DEVOLUCION_NC")),
                 CobroDocumento.fecha_realizacion >= inicio,
                 CobroDocumento.fecha_realizacion < fin,
             )
@@ -149,6 +154,100 @@ async def flujo_dinero(
             )
         )
     )
+    documentos = [x[0] for x in cobros] + [x[0] for x in pagos] + movimientos
+    usuarios = (
+        {
+            x.id: x.nombre_usuario
+            for x in await sesion.scalars(
+                select(Usuario).where(Usuario.id.in_({x.usuario_id for x in documentos}))
+            )
+        }
+        if documentos
+        else {}
+    )
+    apertura_ids = {x.apertura_caja_id for x in documentos if x.apertura_caja_id}
+    contextos_caja = {}
+    if apertura_ids:
+        contextos_caja = {
+            apertura.id: {
+                "apertura_id": str(apertura.id),
+                "caja": f"{caja.codigo} - {caja.descripcion}",
+                "punto_venta": f"{punto.codigo} - {punto.descripcion}",
+                "periodo_operativo": apertura.periodo_operativo,
+            }
+            for apertura, caja, punto in (
+                await sesion.execute(
+                    select(AperturaCaja, CajaVenta, PuntoVenta)
+                    .join(CajaVenta, CajaVenta.id == AperturaCaja.caja_id)
+                    .join(PuntoVenta, PuntoVenta.id == CajaVenta.punto_venta_id)
+                    .where(AperturaCaja.id.in_(apertura_ids))
+                )
+            ).all()
+        }
+    socio_ids = (
+        {x.cliente_id for x, _ in cobros}
+        | {x.proveedor_id for x, _ in pagos}
+        | {x.proveedor_id for x in movimientos if x.proveedor_id}
+    )
+    socios = (
+        {x.id: x for x in await sesion.scalars(select(Socio).where(Socio.id.in_(socio_ids)))}
+        if socio_ids
+        else {}
+    )
+    relaciones_cobros: dict[UUID, list[dict]] = {}
+    cobro_ids = {x.id for x, _ in cobros}
+    if cobro_ids:
+        for imputacion, venta in (
+            await sesion.execute(
+                select(ImputacionCobroVenta, VentaDocumento)
+                .join(VentaDocumento, VentaDocumento.id == ImputacionCobroVenta.venta_id)
+                .where(
+                    ImputacionCobroVenta.cobro_id.in_(cobro_ids),
+                    ImputacionCobroVenta.estado == "ACTIVA",
+                )
+            )
+        ).all():
+            relaciones_cobros.setdefault(imputacion.cobro_id, []).append(
+                {
+                    "tipo": "VENTA",
+                    "id": str(venta.id),
+                    "comprobante": f"{venta.letra} #{venta.numero}",
+                    "importe": imputacion.importe,
+                }
+            )
+    relaciones_pagos: dict[UUID, list[dict]] = {}
+    pago_ids = {x.id for x, _ in pagos}
+    if pago_ids:
+        for imputacion, factura in (
+            await sesion.execute(
+                select(ImputacionPagoFactura, FacturaCompra)
+                .join(FacturaCompra, FacturaCompra.id == ImputacionPagoFactura.factura_id)
+                .where(
+                    ImputacionPagoFactura.pago_id.in_(pago_ids),
+                    ImputacionPagoFactura.estado == "ACTIVA",
+                )
+            )
+        ).all():
+            relaciones_pagos.setdefault(imputacion.pago_id, []).append(
+                {
+                    "tipo": "FACTURA_COMPRA",
+                    "id": str(factura.id),
+                    "comprobante": factura.comprobante_proveedor,
+                    "importe": imputacion.importe,
+                }
+            )
+
+    def contexto(documento) -> dict:
+        return contextos_caja.get(
+            documento.apertura_caja_id,
+            {
+                "apertura_id": None,
+                "caja": "SIN CAJA",
+                "punto_venta": "—",
+                "periodo_operativo": None,
+            },
+        )
+
     filas = (
         [
             {
@@ -158,6 +257,15 @@ async def flujo_dinero(
                 "medio": m.medio,
                 "concepto": m.referencia or "Cobro de cliente",
                 "importe": m.importe,
+                "id": str(c.id),
+                "tipo_origen": "COBRO_CLIENTE",
+                "usuario": usuarios.get(c.usuario_id, "—"),
+                "socio_id": str(c.cliente_id),
+                "socio": socios[c.cliente_id].razon_social if c.cliente_id in socios else "—",
+                "categoria": "COBRO_CLIENTE",
+                "referencia": m.referencia,
+                "relaciones": relaciones_cobros.get(c.id, []),
+                **contexto(c),
             }
             for c, m in cobros
         ]
@@ -169,6 +277,15 @@ async def flujo_dinero(
                 "medio": m.medio,
                 "concepto": m.referencia or p.observacion or "Pago a proveedor",
                 "importe": m.importe,
+                "id": str(p.id),
+                "tipo_origen": "PAGO_PROVEEDOR",
+                "usuario": usuarios.get(p.usuario_id, "—"),
+                "socio_id": str(p.proveedor_id),
+                "socio": socios[p.proveedor_id].razon_social if p.proveedor_id in socios else "—",
+                "categoria": "PAGO_PROVEEDOR",
+                "referencia": m.referencia,
+                "relaciones": relaciones_pagos.get(p.id, []),
+                **contexto(p),
             }
             for p, m in pagos
         ]
@@ -176,10 +293,21 @@ async def flujo_dinero(
             {
                 "fecha": m.fecha_realizacion,
                 "sentido": m.tipo,
-                "origen": "MOVIMIENTO DE CAJA",
+                "origen": "GASTO DIRECTO"
+                if m.categoria == "GASTO_DIRECTO"
+                else "MOVIMIENTO DE CAJA",
                 "medio": m.medio,
                 "concepto": m.concepto,
                 "importe": m.importe,
+                "id": str(m.id),
+                "tipo_origen": "MOVIMIENTO_CAJA",
+                "usuario": usuarios.get(m.usuario_id, "—"),
+                "socio_id": str(m.proveedor_id) if m.proveedor_id else None,
+                "socio": socios[m.proveedor_id].razon_social if m.proveedor_id in socios else None,
+                "categoria": m.categoria,
+                "referencia": m.referencia,
+                "relaciones": [],
+                **contexto(m),
             }
             for m in movimientos
         ]
@@ -379,9 +507,7 @@ async def ventas_margenes(
         .limit(limite)
     )
     if cliente_id:
-        notas_periodo_consulta = notas_periodo_consulta.where(
-            NotaCredito.socio_id == cliente_id
-        )
+        notas_periodo_consulta = notas_periodo_consulta.where(NotaCredito.socio_id == cliente_id)
     if articulo_id:
         detalle_nota_filtro = aliased(VentaDocumentoDetalle)
         notas_periodo_consulta = notas_periodo_consulta.where(
@@ -430,9 +556,7 @@ async def ventas_margenes(
                 "comprobante": f"NC {nota.numero:08d}",
                 "documento_origen": comprobante_origen,
                 "cliente": socio.razon_social,
-                "punto_venta": (
-                    f"{punto.codigo} - {punto.descripcion}" if punto else "SIN PUNTO"
-                ),
+                "punto_venta": (f"{punto.codigo} - {punto.descripcion}" if punto else "SIN PUNTO"),
                 "caja": f"{caja.codigo} - {caja.descripcion}" if caja else "SIN CAJA",
                 "modalidad": nota.modalidad,
                 "motivo": nota.motivo,
