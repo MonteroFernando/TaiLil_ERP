@@ -8,7 +8,13 @@ export type ValorExcel = string | number | boolean | Date | null | undefined;
 export type FormatoExcel = "moneda" | "porcentaje" | "decimal" | "entero" | "fecha" | "texto";
 export type CeldaExcel = { valor: ValorExcel; formato?: FormatoExcel };
 export type ValorCeldaExcel = ValorExcel | CeldaExcel;
-export type HojaExcel = { nombre: string; filas: ValorCeldaExcel[][] };
+export type HojaExcel = {
+  nombre: string;
+  filas: ValorCeldaExcel[][];
+  titulo?: string;
+  subtitulo?: string;
+  metadatos?: [string, ValorCeldaExcel][];
+};
 
 export function IconoExcel() {
   return <svg aria-hidden="true" viewBox="0 0 24 24" className="h-6 w-6" fill="none"><path d="M5 3.5h9l5 5v12H5z" fill="currentColor" opacity=".2"/><path d="M14 3.5v5h5M8 10l4 7m0-7-4 7m7-5h2m-2 3h2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>;
@@ -63,23 +69,39 @@ export async function descargarLibroExcel(nombreArchivo: string, hojas: HojaExce
   const usados = new Set<string>();
 
   for (const hoja of hojas.filter((x) => x.filas.length)) {
+    const cantidadColumnas = Math.max(1, ...hoja.filas.map((fila) => fila.length));
+    const preambulo: ValorCeldaExcel[][] = [];
+    if (hoja.titulo) preambulo.push([hoja.titulo]);
+    if (hoja.subtitulo) preambulo.push([hoja.subtitulo]);
+    if (hoja.metadatos?.length) preambulo.push(...hoja.metadatos.map(([campo, valor]) => [campo, valor]));
+    if (preambulo.length) preambulo.push([]);
+    const filaEncabezado = preambulo.length + 1;
     const planilla = libro.addWorksheet(nombreSeguro(hoja.nombre, usados), {
-      views: [{ state: "frozen", ySplit: 1 }],
+      views: [{ state: "frozen", ySplit: filaEncabezado }],
     });
-    planilla.addRows(hoja.filas.map((fila) => fila.map(valorPlano)));
-    const encabezado = planilla.getRow(1);
+    planilla.addRows([...preambulo, ...hoja.filas].map((fila) => fila.map(valorPlano)));
+    if (hoja.titulo) {
+      const filaTitulo = planilla.getRow(1);
+      if (cantidadColumnas > 1) planilla.mergeCells(1, 1, 1, cantidadColumnas);
+      filaTitulo.font = { bold: true, size: 16, color: { argb: "FFFFFFFF" } };
+      filaTitulo.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF064B33" } };
+      filaTitulo.height = 28;
+    }
+    if (hoja.subtitulo) planilla.getRow(2).font = { italic: true, color: { argb: "FF5F7068" } };
+    const encabezado = planilla.getRow(filaEncabezado);
     encabezado.font = { bold: true, color: { argb: "FFFFFFFF" } };
-    encabezado.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF7C3AED" } };
+    encabezado.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF39735A" } };
     encabezado.alignment = { vertical: "middle" };
     encabezado.height = 24;
-    planilla.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: Math.max(1, encabezado.cellCount) } };
+    planilla.autoFilter = { from: { row: filaEncabezado, column: 1 }, to: { row: filaEncabezado, column: Math.max(1, encabezado.cellCount) } };
     planilla.eachRow((fila, numeroFila) => {
-      if (numeroFila > 1 && numeroFila % 2 === 0) {
+      if (numeroFila > filaEncabezado && (numeroFila - filaEncabezado) % 2 === 0) {
         fila.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF7F5FF" } };
       }
       fila.alignment = { vertical: "top" };
       fila.eachCell((celda, numeroColumna) => {
-        const original = hoja.filas[numeroFila - 1]?.[numeroColumna - 1];
+        const indiceDatos = numeroFila - filaEncabezado;
+        const original = indiceDatos >= 0 ? hoja.filas[indiceDatos]?.[numeroColumna - 1] : undefined;
         const formato = original !== undefined && esCeldaExcel(original) ? original.formato : undefined;
         aplicarFormato(celda, formato);
         if (!formato && celda.value instanceof Date) celda.numFmt = "dd/mm/yyyy hh:mm";
@@ -190,14 +212,103 @@ function convertirCeldaTabla(celda: HTMLTableCellElement, encabezado: string): V
   return { valor: numero, formato: tipoDeclarado ?? (entero ? "entero" : "decimal") };
 }
 
-function tablaAHoja(tabla: HTMLTableElement, indice: number): HojaExcel {
-  const contenedor = tabla.closest("section, article, div");
-  const titulo = contenedor?.querySelector("h2, h3")?.textContent?.trim() || `Tabla ${indice + 1}`;
-  const encabezados = Array.from(tabla.rows[0]?.cells ?? []).map(textoCelda);
-  const filas = Array.from(tabla.rows).map((fila, numeroFila) => Array.from(fila.cells).map((celda, columna) =>
-    numeroFila === 0 ? { valor: textoCelda(celda), formato: "texto" as const } : convertirCeldaTabla(celda, encabezados[columna] ?? ""),
-  ));
-  return { nombre: titulo, filas };
+function visible(elemento: HTMLElement | null): elemento is HTMLElement {
+  return Boolean(elemento && elemento.offsetParent !== null && getComputedStyle(elemento).visibility !== "hidden");
+}
+
+function textoControl(control: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement) {
+  if (control instanceof HTMLSelectElement) return Array.from(control.selectedOptions).map((opcion) => opcion.text).join(" · ");
+  if (control instanceof HTMLInputElement && (control.type === "checkbox" || control.type === "radio")) return control.checked ? "SI" : "NO";
+  return control.value;
+}
+
+function valorControlExcel(control: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement): ValorCeldaExcel {
+  const texto = textoControl(control);
+  if (control instanceof HTMLInputElement && control.type === "number" && texto !== "" && Number.isFinite(control.valueAsNumber)) {
+    return { valor: control.valueAsNumber, formato: Number.isInteger(control.valueAsNumber) ? "entero" : "decimal" };
+  }
+  if (control instanceof HTMLInputElement && (control.type === "date" || control.type === "datetime-local")) {
+    const valor = fechaDesdeTexto(texto);
+    return valor ? { valor, formato: "fecha" } : texto;
+  }
+  return texto;
+}
+
+function valorResumenExcel(texto: string): ValorCeldaExcel {
+  const numero = numeroDesdeTexto(texto);
+  if (numero === null) return texto;
+  if (/\$|\bARS\b/i.test(texto)) return { valor: numero, formato: "moneda" };
+  if (texto.includes("%")) return { valor: numero / 100, formato: "porcentaje" };
+  return { valor: numero, formato: Number.isInteger(numero) ? "entero" : "decimal" };
+}
+
+function tituloControl(control: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement, indice: number) {
+  const etiqueta = control.closest("label");
+  if (etiqueta) {
+    const copia = etiqueta.cloneNode(true) as HTMLElement;
+    copia.querySelectorAll("input,select,textarea,button,small").forEach((elemento) => elemento.remove());
+    const texto = (copia.innerText || copia.textContent || "").replace(/\s+/g, " ").trim();
+    if (texto) return texto;
+  }
+  return control.getAttribute("aria-label") || control.getAttribute("placeholder") || control.name || `Campo ${indice + 1}`;
+}
+
+function resumenPagina(principal: HTMLElement, titulo: string, subtitulo: string): HojaExcel {
+  const filas: ValorCeldaExcel[][] = [["Tipo", "Título", "Valor"]];
+  const agregados = new Set<string>();
+  const agregar = (tipo: string, nombre: string, valor: ValorCeldaExcel) => {
+    const clave = `${tipo}|${nombre}|${String(valorPlano(valor) ?? "")}`;
+    if (!nombre || agregados.has(clave)) return;
+    agregados.add(clave);
+    filas.push([tipo, nombre, valor]);
+  };
+  principal.querySelectorAll<HTMLElement>("h2,h3").forEach((elemento) => {
+    if (visible(elemento) && !elemento.closest("table,[role='dialog']")) agregar("Sección", (elemento.innerText || elemento.textContent || "").trim(), "");
+  });
+  principal.querySelectorAll<HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement>("input,select,textarea").forEach((control, indice) => {
+    if (!visible(control) || control.type === "password" || control.type === "hidden" || control.closest("[role='dialog']")) return;
+    agregar("Filtro / campo", tituloControl(control, indice), valorControlExcel(control));
+  });
+  principal.querySelectorAll<HTMLElement>("article,[class~='rounded-xl'],[class~='rounded-2xl']").forEach((tarjeta, indice) => {
+    if (!visible(tarjeta) || tarjeta.querySelector("table,form") || tarjeta.closest("[role='dialog']")) return;
+    const textoTarjeta = (tarjeta.innerText || tarjeta.textContent || "").replace(/\s+/g, " ").trim();
+    if (!textoTarjeta || textoTarjeta.length > 260) return;
+    const nombre = tarjeta.querySelector<HTMLElement>("h2,h3,small,p")?.innerText?.replace(/\s+/g, " ").trim() || `Indicador ${indice + 1}`;
+    const valores = Array.from(tarjeta.querySelectorAll<HTMLElement>("strong,b")).filter(visible).map((elemento) => elemento.innerText.replace(/\s+/g, " ").trim()).filter(Boolean);
+    if (valores.length) agregar("Indicador", nombre, valores.length===1?valorResumenExcel(valores[0]):valores.join(" · "));
+  });
+  return {
+    nombre: "Vista general",
+    titulo,
+    subtitulo,
+    metadatos: [["Exportado", new Date()]],
+    filas,
+  };
+}
+
+function tituloTabla(tabla: HTMLTableElement, indice: number) {
+  const filaDetalle = tabla.closest<HTMLTableRowElement>('tr[data-exportar-ignorar="true"]');
+  const comprobante = filaDetalle?.previousElementSibling?.textContent?.replace(/\s+/g," ").trim();
+  if (comprobante) return `Líneas · ${comprobante.slice(0,80)}`;
+  let contenedor: HTMLElement|null = tabla.parentElement;
+  while (contenedor && contenedor.tagName !== "MAIN") {
+    const encabezado = Array.from(contenedor.querySelectorAll<HTMLElement>("h2,h3")).find((elemento)=>!elemento.closest("table"));
+    const titulo = encabezado?.textContent?.trim();
+    if (titulo) return titulo;
+    contenedor = contenedor.parentElement;
+  }
+  return `Tabla ${indice + 1}`;
+}
+
+function tablaAHoja(tabla: HTMLTableElement, indice: number, tituloPagina: string, subtitulo: string, metadatos: [string, ValorCeldaExcel][]): HojaExcel {
+  const titulo = tituloTabla(tabla,indice);
+  const filaEncabezado = tabla.tHead?.rows[0] ?? null;
+  const cantidadColumnas = Math.max(0, ...Array.from(tabla.rows).map((fila) => fila.cells.length));
+  const encabezadosOriginales = filaEncabezado ? Array.from(filaEncabezado.cells).map(textoCelda) : Array.from({length:cantidadColumnas},(_,columna)=>`Columna ${columna+1}`);
+  const columnasDatos = encabezadosOriginales.map((encabezado,columna)=>({encabezado,columna})).filter(({encabezado})=>encabezado && !/^(acción|accion|acciones)$/i.test(encabezado));
+  const filasDatos = Array.from(tabla.tBodies).flatMap((cuerpo)=>Array.from(cuerpo.rows)).filter((fila) => !fila.hasAttribute("data-exportar-ignorar"));
+  const filas: ValorCeldaExcel[][] = [columnasDatos.map(({encabezado})=>({valor:encabezado,formato:"texto" as const})),...filasDatos.map((fila)=>columnasDatos.map(({encabezado,columna})=>fila.cells[columna]?convertirCeldaTabla(fila.cells[columna],encabezado):null))];
+  return { nombre: titulo, titulo: `${tituloPagina} · ${titulo}`, subtitulo, metadatos, filas };
 }
 
 export default function ExportarTablasPagina() {
@@ -205,11 +316,14 @@ export default function ExportarTablasPagina() {
   const [disponible, setDisponible] = useState(false);
   const [encabezado, setEncabezado] = useState<HTMLElement|null>(null);
   const ruta = usePathname();
-  const selectorTablasExportables = '.erp-contenido table[data-exportar-excel="true"]';
+  const selectorTablasExportables = ".erp-contenido main table";
   useEffect(() => {
     const actualizar = () => {
-      setDisponible(Array.from(document.querySelectorAll<HTMLTableElement>(selectorTablasExportables)).some((tabla) => tabla.offsetParent !== null));
-      setEncabezado(document.querySelector<HTMLElement>(".erp-contenido > main > header, .erp-contenido > main > section > header"));
+      const principal = document.querySelector<HTMLElement>(".erp-contenido > main");
+      const cabecera = document.querySelector<HTMLElement>(".erp-contenido > main > header, .erp-contenido > main > section > header") ?? principal?.querySelector<HTMLElement>("header") ?? null;
+      const exportadorPropio = cabecera?.querySelector(".erp-exportar-excel-encabezado:not([data-exportador-global])");
+      setDisponible(Boolean(visible(principal) && cabecera && !exportadorPropio));
+      setEncabezado(cabecera);
     };
     const temporizador = window.setTimeout(actualizar, 0);
     const observador = new MutationObserver(actualizar);
@@ -217,17 +331,22 @@ export default function ExportarTablasPagina() {
     return () => { window.clearTimeout(temporizador); observador.disconnect(); };
   }, [ruta]);
   async function exportar() {
+    const principal = document.querySelector<HTMLElement>(".erp-contenido > main");
+    if (!principal) return;
     const tablas = Array.from(document.querySelectorAll<HTMLTableElement>(selectorTablasExportables))
-      .filter((tabla) => tabla.offsetParent !== null);
-    if (!tablas.length) return;
+      .filter(visible);
     setExportando(true);
     try {
       const titulo = document.querySelector(".erp-contenido h1")?.textContent?.trim() || "TaiLil ERP";
-      await descargarLibroExcel(`${titulo}-${new Date().toISOString().slice(0, 10)}`, tablas.map(tablaAHoja));
+      const subtitulo = encabezado?.querySelector("p:last-of-type")?.textContent?.trim() || "Reporte completo de pantalla";
+      const controles = Array.from(principal.querySelectorAll<HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement>("input,select,textarea")).filter((control)=>visible(control)&&control.type!=="password"&&control.type!=="hidden"&&!control.closest("[role='dialog']"));
+      const metadatos: [string,ValorCeldaExcel][] = controles.slice(0,12).map((control,indice)=>[tituloControl(control,indice),valorControlExcel(control)]);
+      const hojas = [resumenPagina(principal,titulo,subtitulo),...tablas.map((tabla,indice)=>tablaAHoja(tabla,indice,titulo,subtitulo,metadatos))];
+      await descargarLibroExcel(`${titulo}-${new Date().toISOString().slice(0, 10)}`, hojas);
     } finally {
       setExportando(false);
     }
   }
   if (!disponible || !encabezado) return null;
-  return createPortal(<button type="button" onClick={()=>void exportar()} disabled={exportando} className="erp-exportar-excel-encabezado" title={exportando?"Generando Excel...":"Exportar listados a Excel"} aria-label={exportando?"Generando Excel":"Exportar listados a Excel"}><IconoExcel/></button>,encabezado);
+  return createPortal(<button type="button" data-exportador-global="true" onClick={()=>void exportar()} disabled={exportando} className="erp-exportar-excel-encabezado" title={exportando?"Generando Excel...":"Exportar pantalla completa a Excel"} aria-label={exportando?"Generando Excel":"Exportar pantalla completa a Excel"}><IconoExcel/></button>,encabezado);
 }

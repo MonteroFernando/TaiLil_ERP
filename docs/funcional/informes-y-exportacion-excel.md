@@ -42,7 +42,7 @@ El costo es el valor guardado en cada renglon al confirmar la venta. Por eso una
 
 **Descargar informe completo · Excel** genera un archivo `.xlsx` con:
 
-- **Resumen**: periodo y totales de flujo, ventas, costo y margen;
+- **Resumen**: periodo, filtros, totales de flujo, ventas, costo, margen y rentabilidad combinada de los comprobantes seleccionados;
 - **Flujo de dinero**: fecha, sentido, origen, medio, concepto e importe;
 - **Ventas y margenes**: fecha y hora, comprobante, cliente, punto de venta, caja, articulos distintos, venta original, notas de credito, importe neto, costo neto, margen y porcentaje.
 
@@ -50,17 +50,8 @@ Los importes se almacenan en las celdas como numeros, con formato monetario; los
 
 ## Exportacion de listados operativos
 
-El boton general de exportacion aparece como el icono verde de Excel en el encabezado de la pantalla, solamente donde el listado tiene valor administrativo. Ya no utiliza un boton flotante que tape tablas o acciones:
-
-- articulos;
-- ultimos documentos de compras;
-- proyeccion de stock;
-- inventarios;
-- historico de movimientos de stock;
-- historico de ventas en Tesoreria.
+El boton general de exportacion aparece como el icono verde de Excel en el encabezado de todos los modulos. Ya no utiliza un boton flotante que tape tablas o acciones. El libro incluye una hoja **Vista general** con titulos, filtros e indicadores/importes visibles, y una hoja por cada tabla visible con todas sus filas y columnas de datos.
 
 La hoja **Flujo de dinero** del informe completo incorpora usuario, caja, punto de venta, socio, referencia y comprobantes relacionados. Los importes permanecen numericos con formato monetario.
 
-No aparece en formularios, modales, configuraciones, POS, etiquetas ni grillas auxiliares. En particular, las etiquetas no se exportan como tabla.
-
-El archivo refleja las tablas visibles y habilitadas de la pantalla. Para informes gerenciales debe utilizarse siempre el boton de informe completo, que obtiene todo el conjunto preparado por el modulo y no depende de copiar texto de la interfaz.
+El archivo refleja el estado visible de la pantalla. Las columnas puramente operativas, como **Acciones**, no se incluyen. Si un comprobante esta desplegado, sus lineas se agregan en una hoja propia. El modulo Informes conserva su libro dedicado de tres hojas y suma el rango, los filtros y la rentabilidad seleccionada.

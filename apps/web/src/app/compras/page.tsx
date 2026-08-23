@@ -7,6 +7,7 @@ import BuscadorArticulo, { ArticuloBuscado } from "@/components/BuscadorArticulo
 import { cantidadParaEntrada, formatearMoneda } from "@/formato";
 import TablaOrdenable from "@/components/TablaOrdenable";
 import RotacionCompras from "@/components/RotacionCompras";
+import { DetalleLineasComprobante, FilaComprobanteExpandible } from "@/components/ComprobanteExpandible";
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api/v1";
 type Socio = { id: string; razon_social: string };
 type Almacen = {
@@ -43,6 +44,9 @@ type Documento = {
     articulo_codigo: string;
     articulo_descripcion: string;
     cantidad_base: string;
+    costo_bruto_unitario: string | null;
+    total_bruto: string | null;
+    politica_costo: string | null;
     advertencia: string | null;
   }[];
 };
@@ -542,9 +546,9 @@ export default function Compras() {
                 )
                 .slice(0, 30)
                 .map((x) => (
-                  <tr key={`${x.tipo}-${x.id}`} className="border-t">
+                  <FilaComprobanteExpandible key={`${x.tipo}-${x.id}`} columnas={6} etiqueta={`${x.tipo === "FACTURA" ? "factura" : "ingreso"} ${x.tipo === "FACTURA" ? x.comprobante_proveedor : `#${x.numero}`}`} valoresOrden={[x.tipo,x.tipo === "FACTURA" ? x.comprobante_proveedor??"" : x.numero,x.proveedor_nombre,x.almacen_codigo,x.total_bruto??"",x.fecha_realizacion]} detalle={<DetalleLineasComprobante datos={[{titulo:"Proveedor",valor:x.proveedor_nombre},{titulo:"Almacén",valor:x.almacen_codigo},{titulo:"Estado",valor:x.estado}]} lineas={x.lineas.map(linea=>({id:linea.articulo_id,codigo:linea.articulo_codigo,descripcion:linea.articulo_descripcion,cantidad:linea.cantidad_base,precioUnitario:linea.costo_bruto_unitario,total:linea.total_bruto,detalle:linea.politica_costo?`Política de costo: ${linea.politica_costo}`:linea.advertencia}))} totales={x.total_bruto?[{titulo:"Total bruto",valor:formatearMoneda(x.total_bruto)}]:[]}/>}>
                     <td className="py-3">{x.tipo}</td>
-                    <td>{x.tipo === "FACTURA" ? x.comprobante_proveedor : `#${x.numero}`}</td>
+                    <td><span className="mr-2 text-[var(--marca)]" aria-hidden>▸</span><b className="font-mono text-[var(--marca)]">{x.tipo === "FACTURA" ? x.comprobante_proveedor : `#${x.numero}`}</b><small className="block text-[var(--texto-suave)]">Clic para ver las líneas</small></td>
                     <td>{x.proveedor_nombre}</td>
                     <td>{x.almacen_codigo}</td>
                     <td>
@@ -555,7 +559,7 @@ export default function Compras() {
                     <td>
                       {new Date(x.fecha_realizacion).toLocaleString("es-AR")}
                     </td>
-                  </tr>
+                  </FilaComprobanteExpandible>
                 ))}
             </tbody>
           </TablaOrdenable>

@@ -61,9 +61,7 @@ Las ventas conservan costo histórico por línea. Esto permite revisar importes 
 
 ### Excel
 
-Solo los listados útiles para análisis se habilitan para exportación. El icono de Excel aparece en el encabezado, no flotando sobre la pantalla. Importes y cantidades se escriben como celdas numéricas con formato; nunca como textos que impidan sumar, ordenar o crear fórmulas.
-
-No se exportan pantallas operativas como etiquetas, POS, formularios o configuraciones.
+El icono de Excel aparece en el encabezado de todos los modulos. Exporta una vista general con titulos, filtros e indicadores/importes y hojas separadas con las tablas visibles completas; las lineas desplegadas de comprobantes tambien se incluyen. Importes y cantidades se escriben como celdas numericas con formato, nunca como textos que impidan sumar, ordenar o crear formulas.
 
 ## Flujos principales
 

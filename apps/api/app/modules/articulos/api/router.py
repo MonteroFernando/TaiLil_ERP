@@ -3418,6 +3418,36 @@ async def listar_facturas_compra(
 
 
 @router.get(
+    "/compras/facturas/{factura_id}",
+    response_model=DocumentoCompraVista,
+    dependencies=[Depends(requerir_permiso("compras.ver"))],
+)
+async def obtener_factura_compra(
+    factura_id: UUID,
+    sesion: AsyncSession = Depends(obtener_sesion),
+) -> DocumentoCompraVista:
+    factura = await sesion.get(FacturaCompra, factura_id)
+    if factura is None:
+        raise HTTPException(404, "Factura de compra inexistente")
+    return await documento_compra_vista(factura, sesion)
+
+
+@router.get(
+    "/compras/ingresos/{ingreso_id}",
+    response_model=DocumentoCompraVista,
+    dependencies=[Depends(requerir_permiso("compras.ver"))],
+)
+async def obtener_ingreso_mercaderia(
+    ingreso_id: UUID,
+    sesion: AsyncSession = Depends(obtener_sesion),
+) -> DocumentoCompraVista:
+    ingreso = await sesion.get(IngresoMercaderia, ingreso_id)
+    if ingreso is None:
+        raise HTTPException(404, "Ingreso de mercaderia inexistente")
+    return await documento_compra_vista(ingreso, sesion)
+
+
+@router.get(
     "/compras/rotacion",
     response_model=RotacionComprasVista,
     dependencies=[Depends(requerir_permiso("compras.ver"))],

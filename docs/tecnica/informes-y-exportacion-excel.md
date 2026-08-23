@@ -44,7 +44,7 @@ La migracion `20260821_0040` crea `informes.ver`. Para conservar continuidad, lo
 
 ## Generacion XLSX
 
-`apps/web/src/components/ExportarExcel.tsx` usa ExcelJS. `descargarLibroExcel` crea libros con encabezado, autofiltro, primera fila congelada, anchos ajustados y nombres de hoja validos.
+`apps/web/src/components/ExportarExcel.tsx` usa ExcelJS. `descargarLibroExcel` crea libros con titulo, subtitulo, metadatos, encabezado de tabla, autofiltro, paneles congelados, anchos ajustados y nombres de hoja validos.
 
 Los tipos se conservan explicitamente:
 
@@ -58,7 +58,7 @@ Los tipos se conservan explicitamente:
 
 ## Seleccion de tablas
 
-El exportador general solo toma tablas visibles con `data-exportar-excel="true"`. Es un mecanismo opt-in: agregar una tabla a una pantalla no la vuelve exportable automaticamente. `ExportarTablasPagina` detecta esas tablas y monta mediante portal un boton con icono de Excel en el encabezado principal; no utiliza posicion flotante. Actualmente se habilitan articulos, ultimos documentos y rotacion/MRP de compras, proyeccion e historicos de stock, inventarios e historico de ventas de Tesoreria. POS, Etiquetas, formularios, configuraciones y modales quedan excluidos.
+El exportador general inspecciona el contenido visible de cada modulo y monta mediante portal un boton con icono de Excel en su encabezado principal. Genera una hoja **Vista general** con titulo, subtitulo, fecha de exportacion, filtros/campos e indicadores visibles, mas una hoja por cada tabla visible. Las filas completas se toman del DOM aunque exista desplazamiento horizontal o vertical; se omiten columnas vacias o de acciones. Las tablas de lineas que el usuario haya desplegado debajo de un comprobante se exportan como hojas separadas. Una pantalla con exportador dedicado, como Informes, reemplaza al exportador general para evitar duplicados.
 
 ## Trazabilidad del flujo
 
@@ -70,6 +70,6 @@ La API carga usuarios, contextos de caja, socios y relaciones en consultas agrup
 
 `apps/web/src/components/TablaOrdenable.tsx` centraliza el ordenamiento de los listados extensos. Conserva un orden estable y aplica un ciclo ascendente, descendente y original al pulsar cada encabezado. El comparador reconoce fechas localizadas `es-AR`, numeros con separadores de miles, decimales, moneda y porcentajes; para texto utiliza `Intl.Collator` con comparacion numerica de codigos.
 
-El componente ordena las filas actualmente cargadas y filtradas en el navegador. Cuando una tabla tambien tiene `data-exportar-excel="true"`, el exportador obtiene el mismo orden que se ve en pantalla. Las columnas de acciones y las grillas transaccionales con campos editables no se ordenan.
+El componente ordena las filas actualmente cargadas y filtradas en el navegador. El exportador obtiene el mismo orden que se ve en pantalla. Las columnas de acciones y las grillas transaccionales con campos editables no se ordenan.
 
-Informes genera un libro dedicado de tres hojas —Resumen, Flujo de dinero y Ventas y margenes— directamente desde los datos de sus APIs.
+Informes genera un libro dedicado de tres hojas —Resumen, Flujo de dinero y Ventas y margenes— directamente desde los datos de sus APIs. Cada hoja incorpora el rango y los filtros activos; Resumen tambien incluye los importes de la rentabilidad combinada seleccionada.

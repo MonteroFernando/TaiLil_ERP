@@ -110,7 +110,7 @@ El saldo al inicio del análisis se reconstruye hacia atrás usando saldo anteri
 - `SelectorTema.tsx`: claro/oscuro persistente.
 - `BuscadorArticulo.tsx`: búsqueda incremental y teclado.
 - `TablaOrdenable.tsx`: orden local por encabezado.
-- `ExportarExcel.tsx`: exportación opt-in de tablas visibles.
+- `ExportarExcel.tsx`: exportacion integral de la pantalla y sus tablas visibles.
 - `RotacionCompras.tsx`: análisis MRP.
 - `HistorialCierresCalendario.tsx`: filtro diario/mensual y cuadrícula de calendario.
 - `ModalNotaCreditoPos.tsx`: emisión autorizada desde el POS.
@@ -118,7 +118,7 @@ El saldo al inicio del análisis se reconstruye hacia atrás usando saldo anteri
 
 ## Excel
 
-El exportador inspecciona únicamente tablas visibles marcadas con `data-exportar-excel="true"`. Convierte moneda, porcentajes y cantidades locales a números antes de escribir la celda. Los campos monetarios usan formato Excel y permanecen calculables.
+El exportador genera una vista general con titulos, filtros e indicadores y una hoja por cada tabla visible. Convierte moneda, porcentajes y cantidades locales a numeros antes de escribir la celda. Los campos monetarios usan formato Excel y permanecen calculables.
 
 ## Operación Windows
 

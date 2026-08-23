@@ -3,6 +3,7 @@
 import {
   Children,
   cloneElement,
+  Fragment,
   isValidElement,
   ReactElement,
   ReactNode,
@@ -66,6 +67,23 @@ function comparar(a: string, b: string): number {
   return comparadorTexto.compare(a, b);
 }
 
+function valoresOrdenFila(fila: ReactNode): string[] {
+  if (!isValidElement(fila)) return [];
+  const propiedades = fila.props as { "data-valores-orden"?: string; valoresOrden?: unknown[] };
+  if (propiedades.valoresOrden) return propiedades.valoresOrden.map((valor) => String(valor ?? ""));
+  const atributo = propiedades["data-valores-orden"];
+  if (atributo) {
+    try { return (JSON.parse(atributo) as unknown[]).map((valor) => String(valor ?? "")); }
+    catch { return []; }
+  }
+  const hijos = Children.toArray((fila as ElementoConHijos).props.children);
+  if (fila.type === Fragment) {
+    const principal = hijos.find((hijo) => isValidElement(hijo) && hijo.type === "tr");
+    return valoresOrdenFila(principal);
+  }
+  return hijos.map((celda) => textoNodo(celda).trim());
+}
+
 export default function TablaOrdenable({ children, ...propiedades }: TableHTMLAttributes<HTMLTableElement>) {
   const [columna, setColumna] = useState<number | null>(null);
   const [direccion, setDireccion] = useState<Direccion>(null);
@@ -78,9 +96,9 @@ export default function TablaOrdenable({ children, ...propiedades }: TableHTMLAt
     if (columna === null || direccion === null) return filas;
     return filas.map((fila, indice) => ({ fila, indice })).sort((a, b) => {
       if (!isValidElement(a.fila) || !isValidElement(b.fila)) return a.indice - b.indice;
-      const celdasA = Children.toArray((a.fila as ElementoConHijos).props.children);
-      const celdasB = Children.toArray((b.fila as ElementoConHijos).props.children);
-      const resultado = comparar(textoNodo(celdasA[columna]).trim(), textoNodo(celdasB[columna]).trim());
+      const celdasA = valoresOrdenFila(a.fila);
+      const celdasB = valoresOrdenFila(b.fila);
+      const resultado = comparar(celdasA[columna] ?? "", celdasB[columna] ?? "");
       return (direccion === "asc" ? resultado : -resultado) || a.indice - b.indice;
     }).map(({ fila }) => fila);
   })();

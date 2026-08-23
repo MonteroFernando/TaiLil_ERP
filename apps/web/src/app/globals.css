@@ -191,6 +191,10 @@ table tbody tr {
 table tbody tr:hover {
   background-color: rgb(225 238 231 / 46%);
 }
+table tbody tr[aria-expanded="true"] {
+  background-color: var(--marca-clara);
+  box-shadow: inset 3px 0 0 var(--marca);
+}
 
 dialog,
 [role="dialog"] {
@@ -541,6 +545,10 @@ option[value="ambos"] {
 
 .erp-contenido:has(table[data-exportar-excel="true"]) > main > header,
 .erp-contenido:has(table[data-exportar-excel="true"]) > main > section > header {
+  padding-right: 3.75rem;
+}
+.erp-contenido main header:has(> .erp-exportar-excel-encabezado) {
+  position: relative;
   padding-right: 3.75rem;
 }
 

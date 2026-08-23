@@ -621,3 +621,18 @@ Afecta stock: {"SI" if vista.afecta_stock else "NO"}</p>
 <p class='total'>TOTAL ${vista.total_bruto:.2f}</p>
 <p>DOCUMENTO INTERNO - NO VALIDO COMO COMPROBANTE FISCAL</p></body></html>"""
     )
+
+
+@router.get("/{nota_id}", response_model=NotaCreditoVista)
+async def obtener_nota(
+    nota_id: UUID,
+    sesion: AsyncSession = Depends(obtener_sesion),
+    usuario: Usuario = Depends(obtener_usuario_actual),
+) -> NotaCreditoVista:
+    nota = await sesion.get(NotaCredito, nota_id)
+    if nota is None:
+        raise HTTPException(404, "Nota de credito inexistente")
+    await asegurar_permiso(
+        usuario, "ventas.ver" if nota.tipo == "CLIENTE" else "compras.ver", sesion
+    )
+    return await nota_vista(nota, sesion)
