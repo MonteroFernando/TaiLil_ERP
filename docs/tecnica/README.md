@@ -10,7 +10,7 @@ TaiLil ERP es un monolito modular con API FastAPI/SQLAlchemy, frontend Next.js/R
 
 - [Arquitectura](arquitectura.md)
 - [Instalacion y ejecucion](instalacion.md)
-- [Produccion en red Windows](produccion-red-windows.md)
+- [Produccion en red y actualizador Windows](produccion-red-windows.md)
 - [Operacion Windows, Alembic e impresion](operacion-windows-alembic-impresion.md)
 - [Base de datos](base-de-datos.md)
 - [Autenticacion y seguridad](autenticacion.md)
